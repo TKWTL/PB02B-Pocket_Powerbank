@@ -335,7 +335,11 @@ void SW6306_AlgoUpdate(void)
  * Only queue work here; all register I/O remains in the SW6306 task. */
 static void sw6306_idle_port_tick(void)
 {
-    if (SW6306_IsCharging() || s_special_mode != SW6306_SPECIAL_NONE ||
+    /* Count only while an output port is actually on; otherwise an idle
+     * period with NO cable could pre-saturate the timer and immediately
+     * remove a newly attached port before its load current ramps up. */
+    if ((!SW6306_IsPortA1ON() && !SW6306_IsPortC1ON()) ||
+        SW6306_IsCharging() || s_special_mode != SW6306_SPECIAL_NONE ||
         WLED_AlgoMeterBusy() ||
         SW6306_ReadIBAT() >= SW6306_LowCurrentThreshold_mA) {
         s_idle_remove_ticks = 0U;
