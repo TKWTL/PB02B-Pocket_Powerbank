@@ -20,6 +20,21 @@ lv_obj_t *menu_ui_create(void);
 /* 按当前菜单状态重绘内容并套用主题 */
 void menu_ui_redraw(void);
 
+/* Cross-page transitions; separate from existing within-page TEXT/ICON/WORD
+ * motion. One PID and the existing menu 10ms timer drive EXIT -> ENTER. */
+typedef enum {
+    MENU_TRANS_OTHER = 0,
+    MENU_TRANS_TEXT,
+    MENU_TRANS_ICON,
+    MENU_TRANS_WORD,
+    MENU_TRANS_MAIN
+} menu_trans_kind_t;
+void menu_ui_transition_exit(menu_trans_kind_t kind, lv_obj_t *screen,
+                             void (*commit)(void));
+void menu_ui_transition_enter(menu_trans_kind_t kind, lv_obj_t *screen);
+void menu_ui_transition_reset_page(void);
+bool menu_ui_transition_busy(void);
+
 #ifdef __cplusplus
 }
 #endif

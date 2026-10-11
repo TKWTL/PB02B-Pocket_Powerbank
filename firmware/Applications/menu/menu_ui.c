@@ -70,6 +70,37 @@ static bool s_sliding;
 static int8_t s_slide_dir;
 static lv_timer_t *s_anim_timer;
 
+/* Shared page transition (no extra timer/heap or LVGL animation objects).
+ * Store only the original positions of the visible first-level objects.
+ * 24 covers Main (incl. decorative outline) and ICON (max icon pool).
+ * A single PID controls every element; the group field selects trajectory.
+ */
+#define MENU_TRANS_MAX_ITEMS       24U
+#define MENU_TRANS_EXIT_GAIN       1.25f  /* EXIT ~20-30% faster than ENTER */
+#define MENU_TRANS_ICON_DELAY      45U    /* top labels ~20ms ahead of icons */
+#define MENU_TRANS_MAIN_DELAY_TICK 4U     /* battery enters 30-40ms later */
+typedef enum {
+    MENU_TRANS_IDLE = 0, MENU_TRANS_EXIT, MENU_TRANS_ENTER
+} menu_trans_stage_t;
+typedef enum {
+    MENU_TRANS_GROUP_RADIAL = 0,
+    MENU_TRANS_GROUP_ICON_TOP,
+    MENU_TRANS_GROUP_ICON_BOTTOM,
+    MENU_TRANS_GROUP_MAIN_CENTER,
+    MENU_TRANS_GROUP_WORD
+} menu_trans_group_t;
+typedef struct {
+    lv_obj_t *obj;
+    int16_t x, y;
+    uint8_t group;
+} menu_trans_item_t;
+static menu_trans_item_t s_trans_items[MENU_TRANS_MAX_ITEMS];
+static uint8_t s_trans_count, s_trans_ticks;
+static menu_trans_kind_t s_trans_kind;
+static menu_trans_stage_t s_trans_stage;
+static menu_anim_pid_t s_trans_pid;
+static void (*s_trans_commit)(void);
+
 /* 渲染状态跟踪 */
 static const menu_page_t *s_last_page;
 static uint8_t s_last_index;
@@ -1028,10 +1059,196 @@ static void icon_anim_tick(void)
     icon_apply_positions(st, n);
 }
 
+/* ---------- Cross-page transition: shared one-PID scheduler ----------
+ * MENU page objects remain alive through EXIT even though menu.c already
+ * points to the destination. Commit callback switches/destroys screens only
+ * after EXIT. ENTER begins in the same LVGL timer callback after redraw.
+ *
+ * TEXT: center label direct visibility, four corners radiate from center.
+ * ICON: top hint/clock move from above, bottom icons rise from below.
+ * MAIN: 8 perimeter fields + port frame radiate, battery stack delayed 40ms.
+ * WORD: a 3-line strip enters/exits vertically, preserving scroll PID.
+ */
+static void trans_add(lv_obj_t *obj, uint8_t group)
+{
+    menu_trans_item_t *it;
+    if (!obj || s_trans_count >= MENU_TRANS_MAX_ITEMS ||
+        lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) return;
+    it = &s_trans_items[s_trans_count++];
+    it->obj = obj;
+    it->x = (int16_t)lv_obj_get_x(obj);
+    it->y = (int16_t)lv_obj_get_y(obj);
+    it->group = group;
+}
+
+static void trans_capture(menu_trans_kind_t kind, lv_obj_t *screen)
+{
+    uint32_t i, count;
+    s_trans_count = 0U;
+    s_trans_kind = kind;
+    s_trans_ticks = 0U;
+    if (!screen) return;
+    lv_obj_update_layout(screen);
+    if (kind == MENU_TRANS_TEXT) {
+        /* A running intra-page slide is stopped without reformatting text. */
+        pid_stop_all();
+        s_sliding = false;
+        lv_obj_add_flag(s_item_in, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_item_prev_in, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_item_next_in, LV_OBJ_FLAG_HIDDEN);
+        trans_add(s_header, MENU_TRANS_GROUP_RADIAL);
+        trans_add(s_indicator, MENU_TRANS_GROUP_RADIAL);
+        trans_add(s_item_prev, MENU_TRANS_GROUP_RADIAL);
+        trans_add(s_item_next, MENU_TRANS_GROUP_RADIAL);
+    } else if (kind == MENU_TRANS_ICON) {
+        s_head_pid.active = false;
+        trans_add(s_icon_hint, MENU_TRANS_GROUP_ICON_TOP);
+        trans_add(s_icon_clock, MENU_TRANS_GROUP_ICON_TOP);
+        for (i = 0U; i < s_icon_count; i++)
+            trans_add(s_icons[i].img, MENU_TRANS_GROUP_ICON_BOTTOM);
+    } else if (kind == MENU_TRANS_WORD) {
+        s_word_scroll.active = false;
+        for (i = 0U; i < MENU_WORD_VISIBLE + 1U; i++)
+            trans_add(s_word_line[i], MENU_TRANS_GROUP_WORD);
+    } else if (kind == MENU_TRANS_MAIN) {
+        count = lv_obj_get_child_count(screen);
+        for (i = 0U; i < count; i++) {
+            lv_obj_t *obj = lv_obj_get_child(screen, i);
+            int32_t x = lv_obj_get_x(obj), y = lv_obj_get_y(obj);
+            uint8_t center = (x >= 63 && x <= 105 && y >= 0 && y < 14);
+            trans_add(obj, center ? MENU_TRANS_GROUP_MAIN_CENTER :
+                                   MENU_TRANS_GROUP_RADIAL);
+        }
+    }
+}
+
+static void trans_apply(uint8_t progress)
+{
+    uint8_t enter = s_trans_stage == MENU_TRANS_ENTER;
+    uint8_t bottom_progress = progress;
+    uint8_t i;
+    /* Two 10ms ticks of lead time: top ICON labels move before images. */
+    if (enter) {
+        bottom_progress = (progress <= MENU_TRANS_ICON_DELAY) ? 0U :
+            (uint8_t)(((uint32_t)(progress - MENU_TRANS_ICON_DELAY) * 100U) /
+                       (100U - MENU_TRANS_ICON_DELAY));
+    }
+    for (i = 0U; i < s_trans_count; i++) {
+        menu_trans_item_t *it = &s_trans_items[i];
+        int32_t x = it->x, y = it->y;
+        uint32_t p = progress;
+        if (it->group == MENU_TRANS_GROUP_MAIN_CENTER) {
+            /* Central battery and its percentage don't fly or stretch.
+             * Enter: reveal after 4 frames; exit: disappear immediately. */
+            if (!enter || s_trans_ticks < MENU_TRANS_MAIN_DELAY_TICK)
+                lv_obj_add_flag(it->obj, LV_OBJ_FLAG_HIDDEN);
+            else
+                lv_obj_remove_flag(it->obj, LV_OBJ_FLAG_HIDDEN);
+        } else if (it->group == MENU_TRANS_GROUP_ICON_TOP ||
+                   it->group == MENU_TRANS_GROUP_ICON_BOTTOM ||
+                   it->group == MENU_TRANS_GROUP_WORD) {
+            if (it->group == MENU_TRANS_GROUP_ICON_BOTTOM) p = bottom_progress;
+            if (enter) p = 100U - p;
+            y += ((it->group == MENU_TRANS_GROUP_ICON_TOP) ? -40 : 40) *
+                 (int32_t)p / 100;
+        } else {
+            /* Radial movement is linear in the common PID progress:
+             * EXIT converges toward (80,20), ENTER radiates from there. */
+            if (enter) p = 100U - p;
+            x += ((MENU_SCR_W / 2 - (it->x + lv_obj_get_width(it->obj) / 2)) *
+                  (int32_t)p) / 100;
+            y += ((MENU_SCR_H / 2 - (it->y + lv_obj_get_height(it->obj) / 2)) *
+                  (int32_t)p) / 100;
+        }
+        lv_obj_set_pos(it->obj, x, y);
+    }
+    if (s_trans_kind == MENU_TRANS_TEXT) {
+        /* TEXT center label doesn't move with the corners. */
+        if (!enter) lv_obj_add_flag(s_item, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_remove_flag(s_item, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void trans_tick(void)
+{
+    uint8_t i;
+    if (s_trans_stage == MENU_TRANS_IDLE) return;
+    ++s_trans_ticks;
+    menu_anim_step(&s_trans_pid);
+    trans_apply((uint8_t)s_trans_pid.current);
+    if (s_trans_pid.active) return;
+
+    /* Settle precisely to original geometry (no half-pixel residuals).
+     * Next scene may reuse these objects, so never leave them offset. */
+    trans_apply(100U);
+    for (i = 0U; i < s_trans_count; i++) {
+        lv_obj_set_pos(s_trans_items[i].obj, s_trans_items[i].x,
+                       s_trans_items[i].y);
+    }
+    if (s_trans_stage == MENU_TRANS_EXIT) {
+        void (*commit)(void) = s_trans_commit;
+        s_trans_commit = NULL;
+        s_trans_stage = MENU_TRANS_IDLE;
+        s_trans_count = 0U;
+        if (commit) commit();
+    } else {
+        s_trans_stage = MENU_TRANS_IDLE;
+        s_trans_count = 0U;
+        lv_obj_invalidate(lv_screen_active());
+    }
+}
+
+bool menu_ui_transition_busy(void)
+{
+    return s_trans_stage != MENU_TRANS_IDLE;
+}
+
+void menu_ui_transition_reset_page(void)
+{
+    /* A new menu page must not inherit the previous ICON head or WORD
+     * scroll position, nor start a TEXT within-page item slide. */
+    pid_stop_all();
+    s_sliding = false;
+    s_last_active = false;
+    s_icon_page_was = false;
+    s_word_page = NULL;
+    s_word_scroll.active = false;
+    s_word_base = 0xFFFFU;
+}
+
+void menu_ui_transition_enter(menu_trans_kind_t kind, lv_obj_t *screen)
+{
+    if (kind == MENU_TRANS_OTHER) return;
+    trans_capture(kind, screen);
+    menu_anim_init(&s_trans_pid, 0.0f, 100.0f);
+    s_trans_stage = MENU_TRANS_ENTER;
+    trans_apply(0U);   /* Place new scene offscreen before next LCD flush */
+}
+
+void menu_ui_transition_exit(menu_trans_kind_t kind, lv_obj_t *screen,
+                             void (*commit)(void))
+{
+    if (kind == MENU_TRANS_OTHER) {
+        if (commit) commit();
+        return;
+    }
+    trans_capture(kind, screen);
+    menu_anim_init(&s_trans_pid, 0.0f, 100.0f);
+    s_trans_pid.kp *= MENU_TRANS_EXIT_GAIN;
+    s_trans_pid.kd *= MENU_TRANS_EXIT_GAIN;
+    s_trans_commit = commit;
+    s_trans_stage = MENU_TRANS_EXIT;
+    trans_apply(0U);
+}
+
 /* 由 10ms 定时器驱动：PID 步进 + 应用位置 */
 static void menu_ui_anim_tick(lv_timer_t *t)
 {
     (void)t;
+    if (menu_ui_transition_busy()) {
+        trans_tick();
+        return;
+    }
     /* 文本页整体斜向滚动：中间项到角落 + 新项滑入中间。
      * 所有对象从各自起点立即移动（不做延迟，避免角落留下静止图标）：
      *  - 旧中间项 s_item 沿对角线滑向角落；

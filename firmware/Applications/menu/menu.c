@@ -168,7 +168,8 @@ void menu_app_enter(const menu_app_t *app)
  * 同时注册主界面应用（菜单关闭后按键回主界面处理）。 */
 void menu_app_exit(void)
 {
-    if (s_app && s_app->destroy) s_app->destroy();
+    /* UI screen must remain alive for EXIT. ui_task destroys it after the
+     * commit callback has loaded the destination screen. */
     s_app = NULL;
     s_main_return_last = 0U;
     ui_app_register(menu_app_main.run);

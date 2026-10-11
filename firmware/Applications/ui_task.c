@@ -13,6 +13,20 @@ static lv_obj_t *s_menu_scr;   /* 菜单屏（主界面/应用屏由菜单应用
 static uint8_t s_orientation_lock;
 static uint8_t s_rotate_applied_valid;
 static uint8_t s_rotate_applied_flipped;
+static uint8_t s_shown_valid, s_shown_menu;
+static const menu_page_t *s_shown_page;
+static const menu_app_t *s_shown_app;
+static menu_trans_kind_t s_shown_kind;
+
+static menu_trans_kind_t current_scene_kind(void)
+{
+    const menu_page_t *page = menu_current_page();
+    if (!menu_is_active())
+        return menu_app_active() == &menu_app_main ? MENU_TRANS_MAIN : MENU_TRANS_OTHER;
+    if (!page) return MENU_TRANS_OTHER;
+    return page->type == MENU_PAGE_ICON ? MENU_TRANS_ICON :
+           page->type == MENU_PAGE_WORD ? MENU_TRANS_WORD : MENU_TRANS_TEXT;
+}
 
 /* 500ms UI 数据刷新：
  *  - Time 设置页非编辑态：持续从 SD3078 镜像同步年月日时分秒，秒数正常走动；
@@ -23,7 +37,7 @@ static void status_timer_cb(lv_timer_t *t)
     const menu_page_t *pg;
     (void)t;
 
-    if (!menu_is_active()) {
+    if (!menu_is_active() || menu_ui_transition_busy()) {
         return;
     }
 
@@ -48,20 +62,62 @@ static void status_timer_cb(lv_timer_t *t)
     menu_ui_redraw();
 }
 
-/* 菜单状态变化回调：切换屏幕并重绘。
- * 菜单激活 → 菜单屏；非菜单态 → 当前应用（menu_app_active）activate 加载其屏。
- * 主界面也是应用（menu_app_main），不特殊。
- * 切屏后强制整屏重绘：GC9D01 部分刷新下从未被重绘的区域可能残留
- * 上电垃圾/白点，全屏失效可一次覆盖清除。 */
-static void menu_redraw_handler(void)
+/* Cross-page transition commit. Called only after the old scene EXIT ends.
+ * Load the new screen before freeing the former application's active LVGL
+ * root. This also covers Main -> menu without deleting the visible screen. */
+static void menu_redraw_commit(void)
 {
     const menu_app_t *app = menu_app_active();
-    if (menu_is_active()) {
+    uint8_t next_menu = menu_is_active();
+    menu_trans_kind_t next_kind = current_scene_kind();
+
+    if (next_menu) {
         lv_screen_load(s_menu_scr);
+        menu_ui_transition_reset_page();
+        menu_ui_redraw();
     } else if (app && app->activate) {
-        app->activate();   /* 非菜单态：当前应用加载自己的 screen */
+        app->activate();
+        menu_ui_redraw();
     }
-    lv_obj_invalidate(s_menu_scr);
+    if (s_shown_valid && !s_shown_menu && s_shown_app &&
+        (next_menu || s_shown_app != app) && s_shown_app->destroy)
+        s_shown_app->destroy();
+
+    s_shown_menu = next_menu;
+    s_shown_page = next_menu ? menu_current_page() : NULL;
+    s_shown_app = next_menu ? NULL : app;
+    s_shown_kind = next_kind;
+    s_shown_valid = 1U;
+    lv_obj_invalidate(lv_screen_active());
+    menu_ui_transition_enter(next_kind, lv_screen_active());
+}
+
+static void menu_redraw_handler(void)
+{
+    uint8_t next_menu = menu_is_active();
+    const menu_page_t *next_page = next_menu ? menu_current_page() : NULL;
+    const menu_app_t *next_app = next_menu ? NULL : menu_app_active();
+
+    /* Intra-page NEXT/PREV and value edits retain the existing animation. */
+    if (menu_ui_transition_busy()) return;
+    if (s_shown_valid && (s_shown_menu != next_menu ||
+        (next_menu && s_shown_page != next_page) ||
+        (!next_menu && s_shown_app != next_app))) {
+        menu_ui_transition_exit(s_shown_kind, lv_screen_active(), menu_redraw_commit);
+        return;
+    }
+    if (!s_shown_valid) {
+        /* Boot has no old scene: don't animate a blank power-on screen. */
+        if (next_menu) lv_screen_load(s_menu_scr);
+        else if (next_app && next_app->activate) next_app->activate();
+        menu_ui_redraw();
+        s_shown_menu = next_menu;
+        s_shown_page = next_menu ? next_page : NULL;
+        s_shown_app = next_app;
+        s_shown_kind = current_scene_kind();
+        s_shown_valid = 1U;
+        return;
+    }
     menu_ui_redraw();
 }
 
@@ -175,7 +231,12 @@ static void ui_loop(void)
 {
     app_action_t action;
 
-    /* WORD_ACTION 页面驻留期间每个UI循环执行后台hook，与按键事件无关。 */
+    /* Consume key edges but freeze all user navigation during EXIT/ENTER. */
+    if (menu_ui_transition_busy()) {
+        (void)ui_scan_action();
+        s_last_action = APP_ACTION_NONE;
+        return;
+    }
     menu_process();
     action = ui_scan_action();
 

@@ -56,6 +56,7 @@
 #include "menu.h"
 #include "functions.h"
 #include "main_icons.h"
+#include "menu_ui.h"
 #include "mini_format.h"
 #include <string.h>
 
@@ -441,7 +442,7 @@ static void main_refresh(void)
 static void main_timer_cb(lv_timer_t *t)
 {
     (void)t;
-    main_refresh();
+    if (!menu_ui_transition_busy()) main_refresh();
 }
 
 /* ---------- 对象创建（改布局主要看这里） ----------
@@ -602,8 +603,7 @@ void main_screen_run(app_action_t action)
 
     switch (action) {
     case APP_ACTION_UP:
-        main_screen_destroy();
-        menu_open_from_main();
+        menu_open_from_main(); /* UI dispatcher destroys Main after EXIT. */
         break;
     case APP_ACTION_ENTER_DBL:
         WLED_AlgoRequestToggle();
