@@ -230,7 +230,8 @@ static lv_obj_t *cal_make_label(const char *text)
 {
     lv_obj_t *label = lv_label_create(s_scr);
     lv_obj_set_style_text_color(label, lv_color_white(), 0);
-    lv_obj_set_style_text_font(label, menu_font_small(), 0);
+    lv_obj_set_style_text_font(label, &lv_font_ter_u14b, 0);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_CLIP);
     lv_label_set_text_static(label, text);
     return label;
 }
@@ -270,7 +271,8 @@ static void gravity_calibrate_create(void)
     lv_obj_align(s_right, LV_ALIGN_RIGHT_MID, -1, 0);
 
     s_face = cal_make_label("FACE U-- D--");
-    lv_obj_set_width(s_face, 82);
+    /* FACE U-- D-- is 12 * 8px: 96px required. Clip, never wrap. */
+    lv_obj_set_size(s_face, 104, 14);
     lv_obj_set_style_text_align(s_face, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_face, LV_ALIGN_CENTER, 0, 0);
 
