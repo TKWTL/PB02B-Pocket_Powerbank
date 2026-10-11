@@ -25,6 +25,7 @@
 #define MENU_ANIM_FUNC_KI          0.0f
 #define MENU_ANIM_FUNC_KD          0.05f
 #define MENU_ANIM_INT_LIMIT       80.0f
+#define MENU_ANIM_MAX_STEP_PX      30.0f  /* corner labels entering/leaving */
 
 typedef struct {
     float kp, ki, kd;
