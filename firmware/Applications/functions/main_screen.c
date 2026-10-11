@@ -176,11 +176,9 @@ static void update_ports(void)
         mini_snprintf(buf, sizeof(buf), "OFF");
     }
     lv_label_set_text_static(s_port, buf);
-    /* 整体文字色：有活动=白；无活动=纯黑。
-     * OFF 用纯黑是刻意的——端口框现在是浅蓝填充，黑字在深色屏底/浅蓝框上
-     * 都不可读，等于"把 OFF 隐去"，只留空框。 */
-    lv_obj_set_style_text_color(s_port, (a || c) ?
-                                lv_color_white() : lv_color_hex(0x000000), 0);
+    /* 蓝色底：A/C保留专属红黄；冒号、协议及+采用深灰。OFF纯黑。 */
+    lv_obj_set_style_text_color(s_port,
+        lv_color_hex((a || c) ? 0x384048 : 0x000000), 0);
 }
 
 /* ---------- ETA：电池估算与小电流倒计时取最小 ----------
@@ -378,15 +376,29 @@ static void update_clock_and_temp(void)
  *
  * 【总线静息判断】IBUS < 5mA 视为无负载，直接把 BUS 功率清零，
  * 避免小电流乘以电压后显示出无意义的零点几瓦。 */
+/* 对齐原有 8px 字格，仅前导十位零降低同色系的亮度/饱和度。
+ * 标签默认色仍代表当前工作模式（粉/绿/白），不影响其余字符。 */
+static void set_bus_value(lv_obj_t *lbl, char *out, uint32_t size,
+                          const char *plain, uint32_t dim_rgb)
+{
+    if (plain[0] == '0')
+        mini_snprintf(out, size, "#%06lX 0#%s",
+                      (unsigned long)dim_rgb, plain + 1);
+    else
+        mini_snprintf(out, size, "%s", plain);
+    lv_label_set_text_static(lbl, out);
+}
+
 static void main_refresh(void)
 {
-    static char bus_pw[12], bat_pw[12], bus_v[12], bat_v[12], dir[2];
+    static char bus_pw[24], bus_v[24], bat_pw[12], bat_v[12], dir[2];
+    char plain[12];
     /* uW = mV x mA；直接用 V x A 会引入浮点 */
     uint32_t bus_uw = (uint32_t)SW6306_ReadVBUS() * SW6306_ReadIBUS();
     uint32_t bat_uw = (uint32_t)SW6306_ReadVBAT() * SW6306_ReadIBAT();
     uint32_t centiw, cv;      /* centiw = 0.01W 为单位；cv = 电压最小单位 */
     sw6306_special_mode_t mode = SW6306_AlgoGetSpecialMode();
-    uint32_t bus_rgb;         /* BUS 功率/电压共用的主色（RGB565 量化值） */
+    uint32_t bus_rgb, dim_rgb;  /* BUS 主色与低饱和前导零，均RGB565量化 */
 
     update_ports();
 
@@ -394,15 +406,17 @@ static void main_refresh(void)
      * 功率与电压共用同一个颜色，便于一眼看出"这一栏当前处于什么模式"。 */
     bus_rgb = (mode == SW6306_SPECIAL_LOW_CURRENT) ? 0xF880C8U :
               (mode == SW6306_SPECIAL_SLOW_CHARGE) ? 0x40DC80U : 0xF0F0F0U;
+    dim_rgb = (mode == SW6306_SPECIAL_LOW_CURRENT) ? 0x783860U :
+              (mode == SW6306_SPECIAL_SLOW_CHARGE) ? 0x286040U : 0x687078U;
 
     if (SW6306_ReadIBUS() < 5U) bus_uw = 0U;
     /* uW → 0.01W：+5000 再 /10000 即四舍五入 */
     centiw = (bus_uw + 5000U) / 10000U;
     if (centiw > 99999U) centiw = 99999U;     /* 钳位，防 5 位溢出打乱排版 */
-    mini_snprintf(bus_pw, sizeof(bus_pw), "%02lu.%02luW",
+    mini_snprintf(plain, sizeof(plain), "%02lu.%02luW",
                   (unsigned long)(centiw / 100U),
                   (unsigned long)(centiw % 100U));
-    lv_label_set_text_static(s_bus_power, bus_pw);
+    set_bus_value(s_bus_power, bus_pw, sizeof(bus_pw), plain, dim_rgb);
     lv_obj_set_style_text_color(s_bus_power, lv_color_hex(bus_rgb), 0);
 
     /* 电池功率：同样 0.01W 分辨率 */
@@ -414,9 +428,9 @@ static void main_refresh(void)
 
     /* BUS 电压 0.01V：mV → 10mV 单位，+5 再 /10 四舍五入 */
     cv = ((uint32_t)SW6306_ReadVBUS() + 5U) / 10U;
-    mini_snprintf(bus_v, sizeof(bus_v), "%02lu.%02luV",
+    mini_snprintf(plain, sizeof(plain), "%02lu.%02luV",
                   (unsigned long)(cv / 100U), (unsigned long)(cv % 100U));
-    lv_label_set_text_static(s_bus_volt, bus_v);
+    set_bus_value(s_bus_volt, bus_v, sizeof(bus_v), plain, dim_rgb);
     lv_obj_set_style_text_color(s_bus_volt, lv_color_hex(bus_rgb), 0);
 
     /* 电池电压直接用 mV（1mV 显示单位），故无需换算 */
@@ -531,7 +545,9 @@ static void main_screen_create(void)
     lv_obj_set_style_text_color(s_temp,      lv_color_hex(0xD0DCE0), 0);
     lv_obj_set_style_text_color(s_clock,     lv_color_hex(0xD0DCE0), 0);
     lv_obj_set_style_text_color(s_eta,       lv_color_hex(0x88B4D8), 0);
-    lv_label_set_recolor(s_port, true);      /* 端口标签启用 #RRGGBB 色码 */
+    lv_label_set_recolor(s_port, true);      /* A/C端口着色 */
+    lv_label_set_recolor(s_bus_power, true); /* BUS十位前导0低饱和 */
+    lv_label_set_recolor(s_bus_volt, true);
 
     /* 电量填充条：先在底层画，再由上面的 A8 轮廓图盖出边框效果。
      * 初始宽 0、右对齐到主体右端，实际尺寸每次刷新由 update_battery() 设定。 */
