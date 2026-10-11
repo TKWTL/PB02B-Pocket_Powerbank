@@ -93,9 +93,7 @@ static lv_obj_t *s_scr;                                     /* 主界面根对�
 static lv_obj_t *s_port, *s_bus_power, *s_bus_volt;         /* BUS 栏三行 */
 static lv_obj_t *s_bat_power, *s_bat_volt, *s_dir;          /* 电池栏：功率/电压 + 方向箭头 */
 static lv_obj_t *s_temp, *s_clock, *s_eta;                  /* 状态栏三行（ETA 在中行、时钟在低行） */
-static lv_obj_t *s_bar, *s_tab, *s_bat_img;               /* 电池条和轮廓 */
-static lv_obj_t *s_pct_light_clip, *s_pct_dark_clip;      /* 左白右黑裁剪容器 */
-static lv_obj_t *s_pct_light, *s_pct_dark;                /* 重合的百分比文本 */
+static lv_obj_t *s_bar, *s_tab, *s_bat_img, *s_pct;       /* 电池条/轮廓/百分比 */
 static lv_timer_t *s_timer;                                 /* 500ms 刷新定时器 */
 /* 电量条动画：以 0.1% 为单位逐步逼近真实电量，避免数字跳变。
  * 充电时每 500ms 前进 16.7%，放电时直接对齐真实值。 */
@@ -238,17 +236,13 @@ static void update_eta(uint32_t bat_uw)
     s_eta_seconds = best;
 }
 
-/* ---------- 电池图标与像素级黑白双色百分比 ----------
- * 彩条自右向左延伸：未填充区域剪出白字、填充区域剪出黑字。
- * 两个裁剪容器内的 Label 使用完全相同的屏幕文字坐标，因此可以
- * 在任意字形中途分割颜色，不用改变原电池轮廓和填充动画。 */
+/* 电量填充和百分比：返回单层白字，保持原充电动画及低电闪烁。 */
 static void update_battery(void)
 {
     static char buf[8];
     uint8_t actual = SW6306_ReadCapacity();
     uint8_t pct;
-    int32_t fill, body, tab, split, text_x;
-    uint8_t blink;
+    int32_t fill, body, tab;
 
     if (actual > 100U) actual = 100U;
     if (SW6306_IsCharging()) {
@@ -261,10 +255,9 @@ static void update_battery(void)
     fill = 38 * (int32_t)pct / 100;
     body = fill < 35 ? fill : 35;
     tab = fill > 35 ? fill - 35 : 0;
-    split = MAIN_BAT_X + 39 - body;
 
     lv_obj_set_size(s_bar, body, 12);
-    lv_obj_set_pos(s_bar, split, 1);
+    lv_obj_set_pos(s_bar, MAIN_BAT_X + 39 - body, 1);
     lv_obj_set_style_bg_color(s_bar, lv_color_hex(
         (pct >= 30U) ? 0x00F008 : (pct >= 10U) ? 0xE8DC00 : 0xF80000), 0);
     if (tab > 0) {
@@ -275,29 +268,14 @@ static void update_battery(void)
         lv_obj_add_flag(s_tab, LV_OBJ_FLAG_HIDDEN);
     }
 
-    /* u14b: 每字符宽8px；文字仍居中于原40px轮廓、右移1px。 */
-    text_x = MAIN_BAT_X + (40 - (actual >= 100U ? 32 :
-             (actual >= 10U ? 24 : 16))) / 2 + 1;
     mini_snprintf(buf, sizeof(buf), "%u%%", (unsigned)actual);
-    lv_label_set_text_static(s_pct_light, buf);
-    lv_label_set_text_static(s_pct_dark, buf);
-
-    lv_obj_set_pos(s_pct_light_clip, MAIN_BAT_X, 0);
-    lv_obj_set_size(s_pct_light_clip, split - MAIN_BAT_X, 14);
-    lv_obj_set_pos(s_pct_light, text_x - MAIN_BAT_X, 0);
-    lv_obj_set_pos(s_pct_dark_clip, split, 0);
-    lv_obj_set_size(s_pct_dark_clip, MAIN_BAT_X + 40 - split, 14);
-    lv_obj_set_pos(s_pct_dark, text_x - split, 0);
-
-    blink = actual <= 5U && SW6306_IsDischarging() &&
-            SD3078_ReadMonth() >= 1U && SD3078_ReadMonth() <= 12U &&
-            !(SD3078_ReadSec() & 1U);
-    if (blink) {
-        lv_obj_add_flag(s_pct_light_clip, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(s_pct_dark_clip, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text_static(s_pct, buf);
+    if (actual <= 5U && SW6306_IsDischarging() &&
+        SD3078_ReadMonth() >= 1U && SD3078_ReadMonth() <= 12U &&
+        !(SD3078_ReadSec() & 1U)) {
+        lv_obj_add_flag(s_pct, LV_OBJ_FLAG_HIDDEN);
     } else {
-        lv_obj_remove_flag(s_pct_light_clip, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(s_pct_dark_clip, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_pct, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -469,7 +447,7 @@ static void main_timer_cb(lv_timer_t *t)
 /* ---------- 对象创建（改布局主要看这里） ----------
  * 【创建顺序 = 图层顺序】后建的盖在上面，所以电量填充条(s_bar/s_tab)必须先建，
  * 电池轮廓图(s_bat_img)后建，填充才会显示在轮廓"内部"而不是遮住轮廓。
- * 电量百分比由两个屏幕坐标相同的 Label 组成，由裁剪区分别呈现白/黑两色。
+ * 电量百分比为电池图标的单层子 Label；白字避免动画剪裁造成视觉不连续。
  *
  * 【改动清单——每一步都对应一个可见元素】
  *   1. 根对象 160x40 + 深色底
@@ -478,21 +456,9 @@ static void main_timer_cb(lv_timer_t *t)
  *   4. 方向箭头（固定 x62..69，架在轮廓框与电池之间）
  *   5. 电池栏功率/电压两行
  *   6. 状态栏温度/ETA/时钟三行 + 各栏文字颜色
- *   7. 电池图标：填充条 → 凸起 → A8轮廓图 → 白/黑两个裁剪文本容器
+ *   7. 电池图标：填充条 → 凸起 → A8轮廓图 → 单层白色百分比
  * 所有坐标都基于上面布局图的常量，尽量别再引入裸数字。 */
-/* 透明容器只负责裁剪，上层数字穿过填充边界时会半白半黑。 */
-static lv_obj_t *make_pct_clip(void)
-{
-    lv_obj_t *obj = lv_obj_create(s_scr);
-    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(obj, 0, 0);
-    lv_obj_set_style_radius(obj, 0, 0);
-    lv_obj_set_style_pad_all(obj, 0, 0);
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_size(obj, 40, 14);
-    return obj;
-}
+
 
 static void main_screen_create(void)
 {
@@ -580,21 +546,15 @@ static void main_screen_create(void)
     /* 电池轮廓图（40x14 A8），上色为白色 */
     s_bat_img = lv_image_create(s_scr);
     lv_image_set_src(s_bat_img, &main_icon_battery);
-    lv_obj_set_style_image_recolor(s_bat_img, lv_color_white(), 0);
+    lv_obj_set_style_image_recolor(s_bat_img, lv_color_hex(0xD0DCE0), 0);
     lv_obj_set_style_image_recolor_opa(s_bat_img, LV_OPA_COVER, 0);
     lv_obj_set_pos(s_bat_img, MAIN_BAT_X, 0);
 
-    /* 同一字串画两遍；先画白字后画黑字，均由对应父容器裁剪。 */
-    s_pct_light_clip = make_pct_clip();
-    s_pct_dark_clip = make_pct_clip();
-    s_pct_light = lv_label_create(s_pct_light_clip);
-    s_pct_dark = lv_label_create(s_pct_dark_clip);
-    lv_obj_set_style_pad_all(s_pct_light, 0, 0);
-    lv_obj_set_style_pad_all(s_pct_dark, 0, 0);
-    lv_obj_set_style_text_font(s_pct_light, menu_font_main(), 0);
-    lv_obj_set_style_text_font(s_pct_dark, menu_font_main(), 0);
-    lv_obj_set_style_text_color(s_pct_light, lv_color_white(), 0);
-    lv_obj_set_style_text_color(s_pct_dark, lv_color_black(), 0);
+    s_pct = lv_label_create(s_bat_img);
+    lv_obj_set_style_pad_all(s_pct, 0, 0);
+    lv_obj_set_style_text_font(s_pct, menu_font_main(), 0);
+    lv_obj_set_style_text_color(s_pct, lv_color_white(), 0);
+    lv_obj_align(s_pct, LV_ALIGN_CENTER, 1, 0);
 
     /* ETA 状态机复位：首帧必然显示无效，等稳定 5s 后才有值 */
     s_eta_mode = 0U;
@@ -625,9 +585,7 @@ static void main_screen_destroy(void)
     s_port = s_bus_power = s_bus_volt = NULL;
     s_bat_power = s_bat_volt = s_dir = NULL;
     s_temp = s_clock = s_eta = NULL;
-    s_bar = s_tab = s_bat_img = NULL;
-    s_pct_light_clip = s_pct_dark_clip = NULL;
-    s_pct_light = s_pct_dark = NULL;
+    s_bar = s_tab = s_bat_img = s_pct = NULL;
 }
 
 /* ---------- 主界面按键语义 ----------
