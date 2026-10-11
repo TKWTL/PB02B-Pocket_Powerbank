@@ -8,6 +8,13 @@
 #include "task.h"
 #include "at32f423.h"  /* shared SC7A20/SW6306 IRQ input PB8 */
 
+/* Temporary USART1/115200 wake-cycle tracing; set to 0 after diagnosis.
+ * USART DMA needs to finish before pm_enter_deep_sleep disables clocks. */
+#define SC7A20_WAKE_SERIAL_DEBUG 1U
+#if SC7A20_WAKE_SERIAL_DEBUG
+#include "bsp_usart.h"
+#endif
+
 sc7a20_algo_config_t SC7A20_AlgoConfig = {
     0U, /* pickup_wake：默认关闭，保持现有最低休眠功耗 */
     0U  /* motion_wake：默认关闭 */
@@ -220,6 +227,23 @@ void SC7A20_AlgoPmSuspend(void *ctx)
     SC7A20_ByteRead(SC7A20_CTRG_CTRL3, &sc7a20_wake_arm_ctrl3);
     SC7A20_ByteRead(SC7A20_CTRG_INT1_CFG, &sc7a20_wake_arm_int1_cfg);
     sc7a20_wake_arm_pb8 = gpio_input_data_bit_read(GPIOB, GPIO_PINS_8) == SET;
+
+#if SC7A20_WAKE_SERIAL_DEBUG
+    /* PM task still has USART1/DMA clocks here. Keep each line <64 bytes;
+     * give DMA time to drain before entering WFI/clock gating. */
+    USART_Printf("[SCDBG] ARM P%u M%u OK%lu FAIL%lu PB%u\r\n",
+        (unsigned int)SC7A20_AlgoConfig.pickup_wake,
+        (unsigned int)SC7A20_AlgoConfig.motion_wake,
+        (unsigned long)sc7a20_wake_arm_ok_count,
+        (unsigned long)sc7a20_wake_arm_fail_count,
+        (unsigned int)sc7a20_wake_arm_pb8);
+    USART_Printf("[SCDBG] REG C1=%02X C2=%02X C3=%02X I1=%02X\r\n",
+        (unsigned int)sc7a20_wake_arm_ctrl1,
+        (unsigned int)sc7a20_wake_arm_ctrl2,
+        (unsigned int)sc7a20_wake_arm_ctrl3,
+        (unsigned int)sc7a20_wake_arm_int1_cfg);
+    vTaskDelay(pdMS_TO_TICKS(30U));
+#endif
 }
 
 void SC7A20_AlgoPmResume(void *ctx)
@@ -248,6 +272,15 @@ void SC7A20_AlgoPmResume(void *ctx)
         /* TEMP_CFG=0xC0 follows LIS2DH-like ADC_EN/TEMP_EN semantics.
          * Silan v0.4 register list has no bit description: TODO_HW_VERIFY. */
         SC7A20_ByteWrite(SC7A20_CTRG_TEMP_CFG, 0xC0U);
+#if SC7A20_WAKE_SERIAL_DEBUG
+        /* On recovery, USART clock/DMA are already restored; SRC values
+         * can be zero for a short non-latched IRQ even if it woke MCU. */
+        USART_Printf("[SCDBG] WAKE #%lu S1=%02X S2=%02X PB%u\r\n",
+            (unsigned long)sc7a20_wake_resume_count,
+            (unsigned int)sc7a20_wake_last_src1,
+            (unsigned int)sc7a20_wake_last_src2,
+            (unsigned int)(gpio_input_data_bit_read(GPIOB, GPIO_PINS_8) == SET));
+#endif
     } else {
         SC7A20_Init();
     }
