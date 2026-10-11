@@ -18,6 +18,7 @@
 #include <math.h>
 #include "lvgl.h"
 #include "menu_ui.h"
+#include "menu_anim.h"
 #include "menu.h"
 #include "menu_pages.h"
 #include "menu_theme.h"
@@ -34,22 +35,6 @@
 #define MENU_ROW_BOT_Y   26     /* 底行 y（左下标题 / 右下下一项） */
 #define MENU_CORNER_X    1      /* 角落/左右边距 x */
 
-/* ---------- PID 动画参数（参考 MiaoUI：位置类动画 ki 必须为 0，否则过冲乱飞） ---------- */
-#define MENU_PID_KP       0.25f
-#define MENU_PID_KI       0.0f
-#define MENU_PID_KD       0.05f
-#define MENU_PID_INT_LIMIT 80.0f
-#define MENU_PID_ANIM_MS  10    /* 驱动定时器周期 */
-
-typedef struct {
-    float kp, ki, kd;
-    float current;
-    float target;
-    float integral;
-    float last_error;
-    bool  active;
-} pid_anim_t;
-
 static lv_obj_t *s_scr;        /* 菜单屏 */
 static lv_obj_t *s_header;     /* 左下：菜单名称（主题色） */
 static lv_obj_t *s_indicator;  /* 右上：页码 / EDIT（主题色） */
@@ -62,17 +47,17 @@ static lv_obj_t *s_item_next_in; /* 右下：动画期间屏外滑入的下一�
 static lv_obj_t *s_word_line[3]; /* WORD：独立3行全屏文本窗口 */
 
 /* PID 滑动状态（斜向：x/y 各一组） */
-static pid_anim_t s_pid_out;   /* 滑出 x */
-static pid_anim_t s_pid_out_y; /* 滑出 y */
-static pid_anim_t s_pid_in;    /* 滑入 x */
-static pid_anim_t s_pid_in_y;  /* 滑入 y */
+static menu_anim_pid_t s_pid_out;   /* 滑出 x */
+static menu_anim_pid_t s_pid_out_y; /* 滑出 y */
+static menu_anim_pid_t s_pid_in;    /* 滑入 x */
+static menu_anim_pid_t s_pid_in_y;  /* 滑入 y */
 /* 角落 prev/next：出屏（旧上一/下一项水平移出屏幕，与滑入方向平行）+ 滑入
  * （上上/下下一项屏外水平滑入）。所有对象从各自起点立即移动，
  * 不在角落留下静止图标。 */
-static pid_anim_t s_prev_out_x;  /* s_item_prev 出屏 x（NEXT，向左） */
-static pid_anim_t s_next_out_x;  /* s_item_next 出屏 x（PREV，向右） */
-static pid_anim_t s_prev_in_x;   /* s_item_prev_in 滑入（PREV） */
-static pid_anim_t s_next_in_x;   /* s_item_next_in 滑入（NEXT） */
+static menu_anim_pid_t s_prev_out_x;  /* s_item_prev 出屏 x（NEXT，向左） */
+static menu_anim_pid_t s_next_out_x;  /* s_item_next 出屏 x（PREV，向右） */
+static menu_anim_pid_t s_prev_in_x;   /* s_item_prev_in 滑入（PREV） */
+static menu_anim_pid_t s_next_in_x;   /* s_item_next_in 滑入（NEXT） */
 static bool s_sliding;
 /* 本次滑动的方向锁存（+1 NEXT / -1 PREV）：slide_start 时固定，slide_finish 只认它，
  * 不再回头读 menu_get_state()->nav_dir——动画期间再有按键会改写 nav_dir，
@@ -85,80 +70,6 @@ static const menu_page_t *s_last_page;
 static uint8_t s_last_index;
 static bool s_last_active;
 static bool s_first_after_open;
-
-/* ---------- PID（参考 MiaoUI UI_Animation） ---------- */
-static void pid_init(pid_anim_t *p, float current, float target)
-{
-    p->kp = MENU_PID_KP;
-    p->ki = MENU_PID_KI;
-    p->kd = MENU_PID_KD;
-    p->current = current;
-    p->target  = target;
-    p->integral = 0.0f;
-    p->last_error = 0.0f;
-    p->active = true;
-}
-
-/* 单步 PID；返回是否仍在运动 */
-static bool pid_step(pid_anim_t *p)
-{
-    float err, delta, vel;
-
-    if (!p->active) {
-        return false;
-    }
-    err = p->target - p->current;
-    p->integral += err;
-    if (p->integral >  MENU_PID_INT_LIMIT) p->integral =  MENU_PID_INT_LIMIT;
-    if (p->integral < -MENU_PID_INT_LIMIT) p->integral = -MENU_PID_INT_LIMIT;
-    delta = err - p->last_error;
-    p->last_error = err;
-    vel = p->kp * err + p->ki * p->integral + p->kd * delta;
-    /* 健壮性：非有限值直接收敛到目标，防止坐标被 NaN/Inf 污染 */
-    if (!isfinite(p->current) || !isfinite(p->target) || !isfinite(vel)) {
-        p->current = p->target;
-        p->active  = false;
-        return false;
-    }
-    p->current += vel;
-    if (fabsf(err) < 0.5f && fabsf(vel) < 0.5f) {
-        p->current = p->target;
-        p->active = false;
-    }
-    return p->active;
-}
-
-/* 带每帧最大位移限制的 PID 步进（限速）：
- * 用于长距离出屏/滑入，避免第一帧 kp*距离 过大而"瞬间消失"。 */
-static bool pid_step_lim(pid_anim_t *p, float max_step)
-{
-    float err, delta, vel;
-
-    if (!p->active) {
-        return false;
-    }
-    err = p->target - p->current;
-    p->integral += err;
-    if (p->integral >  MENU_PID_INT_LIMIT) p->integral =  MENU_PID_INT_LIMIT;
-    if (p->integral < -MENU_PID_INT_LIMIT) p->integral = -MENU_PID_INT_LIMIT;
-    delta = err - p->last_error;
-    p->last_error = err;
-    vel = p->kp * err + p->ki * p->integral + p->kd * delta;
-    /* 健壮性：非有限值直接收敛到目标，防止坐标被 NaN/Inf 污染 */
-    if (!isfinite(p->current) || !isfinite(p->target) || !isfinite(vel)) {
-        p->current = p->target;
-        p->active  = false;
-        return false;
-    }
-    if (vel >  max_step) vel =  max_step;
-    if (vel < -max_step) vel = -max_step;
-    p->current += vel;
-    if (fabsf(err) < 0.5f && fabsf(vel) < 0.5f) {
-        p->current = p->target;
-        p->active = false;
-    }
-    return p->active;
-}
 
 /* 条目文本格式化。
  * selected=true：当前选中（中间大项）——显示完整内容（箭头/选项/数值）；
@@ -246,8 +157,7 @@ static void fmt_item_text(const menu_item_t *it, bool editing, bool selected, ch
  *     所以 speed=40 实际约 400px/s（实测 22 字符约 3.4s 走完一轮，与之吻合）。
  *     要让滚动时间翻倍（速度减半），把 40 改成 20 即可。
  * min/max 沿用默认：300ms 下限、10s 上限（上限本身被 LVGL 限制在 10000ms）。 */
-#define MENU_SCROLL_SPEED_UNITS  20U
-#define MENU_SCROLL_ANIM_TIME    lv_anim_speed_clamped(MENU_SCROLL_SPEED_UNITS, 300U, 10000U)
+#define MENU_SCROLL_ANIM_TIME    lv_anim_speed_clamped(MENU_ANIM_SCROLL_UNITS, MENU_ANIM_SCROLL_MIN_MS, MENU_ANIM_SCROLL_MAX_MS)
 
 static int32_t menu_ascii_char_w(const lv_obj_t *lbl)
 {
@@ -570,7 +480,7 @@ static void slide_start(int8_t dir)
         fmt_item_text(&pg->items[(prev + n - 1) % n], false, false, buf, sizeof(buf));
         corner_set_text(s_item_prev, buf, 0U);
         pos_prev_corner(s_item_prev);
-        pid_init(&s_prev_out_x, (float)MENU_CORNER_X, (float)(-MENU_SCR_W));   /* 水平向左出屏 */
+        menu_anim_init(&s_prev_out_x, (float)MENU_CORNER_X, (float)(-MENU_SCR_W));   /* 水平向左出屏 */
         /* s_item_next：隐藏，由 s_item_next_in（下下一项）自屏外右滑入右下角。
          * 滑入项文本直接从索引计算（items[index+1]），不依赖角落标签当前文本：
          * 中断路径下角落文本可能是"按键前"旧值（=新当前项），复制会变成两个
@@ -582,7 +492,7 @@ static void slide_start(int8_t dir)
         lv_obj_update_layout(s_item_next_in);
         nw = lv_obj_get_width(s_item_next_in);
         lv_obj_set_pos(s_item_next_in, MENU_SCR_W, MENU_ROW_BOT_Y);
-        pid_init(&s_next_in_x, (float)MENU_SCR_W, (float)(MENU_SCR_W - nw - MENU_CORNER_X));
+        menu_anim_init(&s_next_in_x, (float)MENU_SCR_W, (float)(MENU_SCR_W - nw - MENU_CORNER_X));
     } else {
         /* PREV：右下角旧下一项向右滑出屏幕；中间项滑到右下；原上一项自左上滑入中间；
          * 上上一项自屏外左滑入左上角 */
@@ -598,7 +508,7 @@ static void slide_start(int8_t dir)
         lv_obj_set_pos(s_item_next,
                        (MENU_SCR_W - lv_obj_get_width(s_item_next) - MENU_CORNER_X),
                        MENU_ROW_BOT_Y);
-        pid_init(&s_next_out_x,
+        menu_anim_init(&s_next_out_x,
                  (float)(MENU_SCR_W - lv_obj_get_width(s_item_next) - MENU_CORNER_X),
                  (float)MENU_SCR_W);   /* 水平向右出屏 */
         /* s_item_prev：隐藏，由 s_item_prev_in（上上一项）自屏外左滑入左上角。
@@ -609,16 +519,16 @@ static void slide_start(int8_t dir)
         corner_set_text(s_item_prev_in, buf, 0U);
         lv_obj_remove_flag(s_item_prev_in, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_pos(s_item_prev_in, -MENU_SCR_W, MENU_ROW_TOP_Y);
-        pid_init(&s_prev_in_x, (float)(-MENU_SCR_W), (float)MENU_CORNER_X);
+        menu_anim_init(&s_prev_in_x, (float)(-MENU_SCR_W), (float)MENU_CORNER_X);
     }
 
     /* 新项起点（对象位置与 PID current 一致） */
     lv_obj_set_pos(s_item_in, in_x, in_y);
 
-    pid_init(&s_pid_out,   (float)lv_obj_get_x(s_item), (float)out_x);
-    pid_init(&s_pid_out_y, (float)lv_obj_get_y(s_item), (float)out_y);
-    pid_init(&s_pid_in,    (float)in_x,                 (float)in_center_x);
-    pid_init(&s_pid_in_y,  (float)in_y,                 (float)MENU_ROW_MID_Y);
+    menu_anim_init(&s_pid_out,   (float)lv_obj_get_x(s_item), (float)out_x);
+    menu_anim_init(&s_pid_out_y, (float)lv_obj_get_y(s_item), (float)out_y);
+    menu_anim_init(&s_pid_in,    (float)in_x,                 (float)in_center_x);
+    menu_anim_init(&s_pid_in_y,  (float)in_y,                 (float)MENU_ROW_MID_Y);
 
     /* 滚动动画中所有项均为灰色（不高亮），落定后才恢复高亮 */
     lv_obj_set_style_text_color(s_item,    menu_theme_get()->text_sec, 0);
@@ -795,7 +705,7 @@ static void slide_finish(void)
 /* 图标对象（每个图标一个：透明度 PID 动画；尺寸用双位图 src 切换，不走 scale transform） */
 typedef struct {
     lv_obj_t *img;
-    pid_anim_t pid_opa;
+    menu_anim_pid_t pid_opa;
     uint8_t  tgt_opa;
 } menu_icon_obj_t;
 
@@ -808,7 +718,7 @@ static menu_icon_obj_t s_icons[MENU_MAX_ICONS];
 static uint8_t s_icon_count;       /* 当前图标页图标数 */
 
 /* 图标页滚动状态 */
-static pid_anim_t s_head_pid;      /* 页面滚动 head_x 动画 */
+static menu_anim_pid_t s_head_pid;      /* 页面滚动 head_x 动画 */
 static int16_t s_head_x_cur;       /* 当前 head_x（整数显示值） */
 static int16_t s_head_x_target;    /* 目标 head_x */
 static bool s_icon_page;           /* 当前页是否为图标页 */
@@ -979,12 +889,12 @@ static void icon_redraw(const menu_state_t *st, const menu_page_t *pg)
     /* 刚进入图标页（打开菜单/页面切换）：head_x 定位到保存值，图标直接到位 */
     if (!s_icon_page_was) {
         s_head_x_cur = s_head_x_target = pg->head_x;
-        pid_init(&s_head_pid, (float)s_head_x_cur, (float)s_head_x_target);
+        menu_anim_init(&s_head_pid, (float)s_head_x_cur, (float)s_head_x_target);
         for (i = 0; i < n; i++) {
             menu_icon_obj_t *ic = &s_icons[i];
             bool sel = (i == st->index);
             ic->tgt_opa = sel ? ICON_SEL_OPA : ICON_NORM_OPA;
-            pid_init(&ic->pid_opa, (float)ic->tgt_opa, (float)ic->tgt_opa);
+            menu_anim_init(&ic->pid_opa, (float)ic->tgt_opa, (float)ic->tgt_opa);
         }
     }
 
@@ -1005,7 +915,7 @@ static void icon_redraw(const menu_state_t *st, const menu_page_t *pg)
         if (delta != 0) {
             s_head_x_target += delta;
             menu_page_set_head_x(s_head_x_target);
-            pid_init(&s_head_pid, (float)s_head_x_cur, (float)s_head_x_target);
+            menu_anim_init(&s_head_pid, (float)s_head_x_cur, (float)s_head_x_target);
         }
     }
 
@@ -1019,10 +929,10 @@ static void icon_redraw(const menu_state_t *st, const menu_page_t *pg)
             ic->tgt_opa = topa;
             if (sel) {
                 /* 新选中：从当前亮度渐变到全亮 */
-                pid_init(&ic->pid_opa, ic->pid_opa.current, (float)topa);
+                menu_anim_init(&ic->pid_opa, ic->pid_opa.current, (float)topa);
             } else {
                 /* 取消选中：立即置为灰暗，不经过中间态 */
-                pid_init(&ic->pid_opa, (float)topa, (float)topa);
+                menu_anim_init(&ic->pid_opa, (float)topa, (float)topa);
             }
         }
     }
@@ -1075,11 +985,11 @@ static void icon_anim_tick(void)
     s_icon_anim_was_active = true;
 
     if (s_head_pid.active) {
-        pid_step(&s_head_pid);
+        menu_anim_step(&s_head_pid);
         s_head_x_cur = (int16_t)s_head_pid.current;
     }
     for (i = 0; i < n; i++) {
-        pid_step(&s_icons[i].pid_opa);
+        menu_anim_step(&s_icons[i].pid_opa);
     }
     icon_apply_positions(st, n);
 }
@@ -1094,29 +1004,29 @@ static void menu_ui_anim_tick(lv_timer_t *t)
      *  - 新中间项 s_item_in 从对侧角落滑入中间；
      *  - 角落新项从屏外水平滑入对应角落。 */
     if (s_sliding) {
-        pid_step(&s_pid_out);
-        pid_step(&s_pid_out_y);
-        pid_step(&s_pid_in);
-        pid_step(&s_pid_in_y);
+        menu_anim_step(&s_pid_out);
+        menu_anim_step(&s_pid_out_y);
+        menu_anim_step(&s_pid_in);
+        menu_anim_step(&s_pid_in_y);
         lv_obj_set_pos(s_item,    (int32_t)s_pid_out.current,   (int32_t)s_pid_out_y.current);
         lv_obj_set_pos(s_item_in, (int32_t)s_pid_in.current,    (int32_t)s_pid_in_y.current);
     }
     /* 角落 prev/next：旧上一/下一项水平出屏（30px/帧：先于滑入项覆盖角落前
      * 快速清空，全程可见不失效）+ 上上/下下一项屏外水平滑入（立即移动）。 */
     if (s_prev_out_x.active) {
-        pid_step_lim(&s_prev_out_x, 30.0f);
+        menu_anim_step_limit(&s_prev_out_x, 30.0f);
         lv_obj_set_x(s_item_prev, (int32_t)s_prev_out_x.current);
     }
     if (s_next_out_x.active) {
-        pid_step_lim(&s_next_out_x, 30.0f);
+        menu_anim_step_limit(&s_next_out_x, 30.0f);
         lv_obj_set_x(s_item_next, (int32_t)s_next_out_x.current);
     }
     if (s_prev_in_x.active) {
-        pid_step(&s_prev_in_x);
+        menu_anim_step(&s_prev_in_x);
         lv_obj_set_x(s_item_prev_in, (int32_t)s_prev_in_x.current);
     }
     if (s_next_in_x.active) {
-        pid_step(&s_next_in_x);
+        menu_anim_step(&s_next_in_x);
         lv_obj_set_x(s_item_next_in, (int32_t)s_next_in_x.current);
     }
     if (s_sliding &&
@@ -1247,7 +1157,7 @@ lv_obj_t *menu_ui_create(void)
     }
 
     /* PID 动画驱动定时器 */
-    s_anim_timer = lv_timer_create(menu_ui_anim_tick, MENU_PID_ANIM_MS, NULL);
+    s_anim_timer = lv_timer_create(menu_ui_anim_tick, MENU_ANIM_TICK_MS, NULL);
     /* 顶部时间指示（1s 刷新） */
     lv_timer_create(icon_clock_tick, 1000, NULL);
 
