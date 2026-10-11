@@ -196,7 +196,7 @@ struct SC7A20_StatusTypedef
 /**************************SC7A20 寄存器地址定义*******************************/
 //命名规则：固定前缀(SC7A20)_状态(ST)/控制(CT)+寄存器(RG)_(功能描述)
 #define SC7A20_STRG_OUT_TEMP_L       0x0CU//温度输出低8位
-#define SC7A20_STRG_OUT_TEMP_H       0x0DU//温度输出高4位（12位补码）
+#define SC7A20_STRG_OUT_TEMP_H       0x0DU//温度高字节（兼容LIS2DH12有符号8位量）
 #define SC7A20_STRG_WHO_AM_I         0x0FU//芯片标识（应读0x11）
 #define SC7A20_CTRG_NVM_WR           0x1EU//NVM写（内部校准数据）
 #define SC7A20_CTRG_TEMP_CFG         0x1FU//温度配置（内部温度ADC使能）
@@ -398,7 +398,7 @@ void SC7A20_SetZCalibration(int16_t zero_raw, float slope_mg_per_lsb);
 //温度操作
 SC7A20_RET SC7A20_TempLoad(SC7A20_NOARG);      //读取温度原始数据镜像（0x0C/0x0D）
 int16_t SC7A20_ReadTempRaw(void);              //读取原始温度寄存器码，不是绝对°C
-float SC7A20_ReadTemp(void);                   //旧接口兼容，当前返回原始码（未校准）
+float SC7A20_ReadTemp(void);                   //°C，LIS2DH12斜率+27°C/0x18B0单点校准
 
 //状态操作
 SC7A20_RET SC7A20_StatusLoad(SC7A20_NOARG);    //读取状态寄存器镜像（0x27）

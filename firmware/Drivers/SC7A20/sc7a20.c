@@ -285,8 +285,12 @@ int16_t SC7A20_ReadTempRaw(void)
 
 float SC7A20_ReadTemp(void)
 {
-    /* Historical API returns raw register code until °C calibration exists. */
-    return (float)SC7A20_ReadTempRaw();
+    /* LIS2DH12-compatible slope: signed 8-bit temperature /256 raw/°C.
+     * SC7A20 measured 0x1820..0x1940 at 27°C. The LIS2DH12 +25°C
+     * factory offset would read ~49°C; instead use this board's midpoint
+     * 0x18B0 at 27°C as one-point offset calibration. */
+    return 27.0f + (float)((int32_t)SC7A20_ReadTempRaw() - 0x18B0L) *
+                   (1.0f / 256.0f);
 }
 
 /******************************状态操作区**************************************/

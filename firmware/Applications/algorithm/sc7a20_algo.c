@@ -6,6 +6,7 @@
 #include "framework/pm_api.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "at32f423.h"  /* shared SC7A20/SW6306 IRQ input PB8 */
 
 sc7a20_algo_config_t SC7A20_AlgoConfig = {
     0U, /* pickup_wake：默认关闭，保持现有最低休眠功耗 */
@@ -20,6 +21,8 @@ sc7a20_algo_config_t SC7A20_AlgoConfig = {
 static volatile sc7a20_orientation_t s_orientation;
 static sc7a20_orientation_t s_candidate;
 static uint8_t s_candidate_count;
+/* Debugger Watch: sleep attempts rejected because IRQ remained low. */
+volatile uint32_t sc7a20_wake_arm_fail_count;
 
 void SC7A20_AlgoInit(void)
 {
@@ -154,12 +157,29 @@ void SC7A20_AlgoPmSuspend(void *ctx)
      * and clear any stale sources BEFORE connecting generators to INT1. */
     SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
         SC7A20_ODR_10HZ | SC7A20_CTRL1_LPEN | SC7A20_DEFAULT_AXIS_EN);
+
+    /* At 10Hz the high-pass and 6D engines need several samples after
+     * startup. Routing INT1 immediately produced false wake-up loops. */
+    vTaskDelay(pdMS_TO_TICKS(420U));
     if (SC7A20_AlgoConfig.motion_wake)
         SC7A20_ByteRead(SC7A20_CTRG_REFERENCE, &scratch);
+    vTaskDelay(pdMS_TO_TICKS(120U));
     SC7A20_ByteRead(SC7A20_STRG_INT1_SOURCE, &scratch);
     SC7A20_ByteRead(SC7A20_STRG_INT2_SOURCE, &scratch);
     SC7A20_ByteModify(SC7A20_CTRG_CTRL3,
         SC7A20_CTRL3_I1_AOI1 | SC7A20_CTRL3_I1_AOI2, routes);
+
+    /* Shared PB8 must be released before WFI. Fail closed for this sleep
+     * if INT1 stays low. This does NOT fix push-pull wiring contention. */
+    for (uint8_t i = 0U; i < 3U; ++i) {
+        vTaskDelay(pdMS_TO_TICKS(120U));
+        if (gpio_input_data_bit_read(GPIOB, GPIO_PINS_8) == RESET) {
+            ++sc7a20_wake_arm_fail_count;
+            sc7a20_wake_routes_off();
+            SC7A20_LowPowerSet();
+            break;
+        }
+    }
 }
 
 void SC7A20_AlgoPmResume(void *ctx)
