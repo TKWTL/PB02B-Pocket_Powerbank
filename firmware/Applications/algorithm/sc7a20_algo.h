@@ -27,12 +27,14 @@ typedef struct {
 
 extern sc7a20_algo_config_t SC7A20_AlgoConfig;
 
-/* Wake monitor first-board tuning at FS=2g (16mg/LSB for INT1/INT2_THS).
- * 6D Movement detects orientation transitions, not pure translation
- * while retaining an unchanged orientation; validate each mode on board. */
-#define SC7A20_PICKUP_THS_REG        32U   /* 512mg, 6D direction crossing */
-#define SC7A20_MOTION_THS_REG        16U   /* 256mg, HP-filtered motion */
-#define SC7A20_WAKE_DUR_REG           1U   /* one ODR period: 100ms at 10Hz */
+/* 10Hz, FS=2g -> INTx_THS LSB=16mg (LIS2DH12-compatible; verify on SC7A20).
+ * 6D: 54LSB=864mg (>sin(45deg)*1g) separates X/Y/Z known zones.
+ * Motion: 12LSB=192mg, zero duration catches single 10Hz sample excursions.
+ * In low-power mode CTRL4.HR MUST be 0 (LPen=1/HR=1 is invalid). */
+#define SC7A20_PICKUP_THS_REG        54U
+#define SC7A20_PICKUP_DUR_REG         1U
+#define SC7A20_MOTION_THS_REG        12U
+#define SC7A20_MOTION_DUR_REG         0U
 #define SC7A20_ALGO_SAMPLE_MS         200U   /* 5Hz application sampling */
 #define SC7A20_ALGO_ENTER_MG        650.0f
 #define SC7A20_ALGO_CONFIRM_SAMPLES   10U    /* 10 further 200ms samples = 2s stable */

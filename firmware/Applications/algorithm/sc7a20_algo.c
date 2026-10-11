@@ -88,8 +88,8 @@ void SC7A20_AlgoLoadSample(void)
  * Shared PB8/EXTI8 is low-active; ISR always wakes without classifying source.
  * Motion: AOI1 (0x30) XYZ OR + high-pass (CTRL2.HPIS1), INT1 CTRL3[6].
  * Pickup: AOI2 (0x34) 6D Movement XYZ axes, INT1 CTRL3[5].
- * Both use 10Hz / 2g, non-latched interrupt to avoid holding the shared
- * SW6306 IRQ line low. Thresholds are bring-up parameters, not verified.
+ * Both use 10Hz / 2g low-power mode (LPen=1, HR=0), non-latched IRQ to avoid
+ * holding the shared SW6306 line low. Thresholds need board confirmation.
  * No added CPU classification or sampling-rate escalation on wake.
  */
 static void sc7a20_wake_routes_off(void)
@@ -130,9 +130,14 @@ void SC7A20_AlgoPmSuspend(void *ctx)
     SC7A20_ByteModify(SC7A20_CTRG_CTRL5,
         SC7A20_CTRL5_LIR_INT1, 0U);
 
+    /* LIS2DH12 forbids LPen=1 with HR=1. Normal RUN mode uses HR=1,
+     * so clear it BEFORE enabling LPen for the 10Hz wake monitor.
+     * The former illegal mode can inhibit 6D/HPF event recognition. */
+    SC7A20_ByteModify(SC7A20_CTRG_CTRL4, SC7A20_CTRL4_HR, 0U);
+
     if (SC7A20_AlgoConfig.motion_wake) {
         SC7A20_ByteWrite(SC7A20_CTRG_INT1_THS, SC7A20_MOTION_THS_REG);
-        SC7A20_ByteWrite(SC7A20_CTRG_INT1_DURATION, SC7A20_WAKE_DUR_REG);
+        SC7A20_ByteWrite(SC7A20_CTRG_INT1_DURATION, SC7A20_MOTION_DUR_REG);
         SC7A20_ByteWrite(SC7A20_CTRG_INT1_CFG, SC7A20_INTMODE_OR |
             SC7A20_INT_CFG_XHIE | SC7A20_INT_CFG_XLIE |
             SC7A20_INT_CFG_YHIE | SC7A20_INT_CFG_YLIE |
@@ -144,7 +149,7 @@ void SC7A20_AlgoPmSuspend(void *ctx)
 
     if (SC7A20_AlgoConfig.pickup_wake) {
         SC7A20_ByteWrite(SC7A20_CTRG_INT2_THS, SC7A20_PICKUP_THS_REG);
-        SC7A20_ByteWrite(SC7A20_CTRG_INT2_DURATION, SC7A20_WAKE_DUR_REG);
+        SC7A20_ByteWrite(SC7A20_CTRG_INT2_DURATION, SC7A20_PICKUP_DUR_REG);
         SC7A20_ByteWrite(SC7A20_CTRG_INT2_CFG,
             SC7A20_INTMODE_6D_MOTION |
             SC7A20_INT_CFG_XHIE | SC7A20_INT_CFG_XLIE |
@@ -190,6 +195,10 @@ void SC7A20_AlgoPmResume(void *ctx)
         /* Power-down mode removed XYZ enable bits; restore all of them. */
         SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
             SC7A20_ODR_10HZ | SC7A20_DEFAULT_AXIS_EN);
+        /* Once LPen is cleared, return to the 12-bit HR=1 RUN mode.
+         * Respect the configurable default if HR is disabled in future. */
+        SC7A20_ByteModify(SC7A20_CTRG_CTRL4, SC7A20_CTRL4_HR,
+                           SC7A20_DEFAULT_HIGHRES ? SC7A20_CTRL4_HR : 0U);
         /* TEMP_CFG=0xC0 follows LIS2DH-like ADC_EN/TEMP_EN semantics.
          * Silan v0.4 register list has no bit description: TODO_HW_VERIFY. */
         SC7A20_ByteWrite(SC7A20_CTRG_TEMP_CFG, 0xC0U);
