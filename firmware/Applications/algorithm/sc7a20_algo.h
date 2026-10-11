@@ -30,12 +30,12 @@ extern sc7a20_algo_config_t SC7A20_AlgoConfig;
 /* 25Hz sleep, FS=2g -> INTx_THS LSB=16mg (LIS2DH12-compatible; verify on SC7A20).
  * 6D: return to 32LSB=512mg: the previous 54LSB value lost all observed
  * pickup events. Revisit after validating actual INT2_SOURCE responses.
- * Motion: 6LSB=96mg, zero duration catches single 25Hz samples.
+ * Motion: 8LSB=128mg, zero duration catches single 25Hz samples.
  * HPM=11: auto-reset HPF on event; still read REFERENCE before re-arm.
  * In low-power mode CTRL4.HR MUST be 0 (LPen=1/HR=1 is invalid). */
 #define SC7A20_PICKUP_THS_REG        32U
 #define SC7A20_PICKUP_DUR_REG         1U
-#define SC7A20_MOTION_THS_REG         6U
+#define SC7A20_MOTION_THS_REG         8U
 #define SC7A20_MOTION_DUR_REG         0U
 #define SC7A20_ALGO_SAMPLE_MS         200U   /* 5Hz application sampling */
 #define SC7A20_ALGO_ENTER_MG        650.0f
