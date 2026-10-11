@@ -6,6 +6,7 @@
  */
 #include "sw6306_algo.h"
 #include "sw6306.h"
+#include "wled_algo.h"
 #include "framework/nvm_store.h"
 #include "framework/pm_api.h"
 #include "FreeRTOS.h"
@@ -25,6 +26,9 @@
 #define SW6306_CMD_REINIT         (1U << 6)
 #define SW6306_CMD_LEARN_REARM    (1U << 7)
 #define SW6306_CMD_LOW_CURRENT    (1U << 8)
+#define SW6306_CMD_UNUSED_REMOVE  (1U << 9)
+#define SW6306_CMD_IDLE_REMOVE    (1U << 10)
+#define SW6306_IDLE_REMOVE_TICKS   10U
 
 sw6306_algo_config_t SW6306_AlgoConfig = {
     1U, 1U,             /* PD out/in */
@@ -47,6 +51,7 @@ static volatile uint8_t s_special_toggle_req;
 static volatile sw6306_special_mode_t s_special_mode;
 static uint32_t s_last_high_load_tick;
 static uint8_t s_slow_stop_count;
+static uint8_t s_idle_remove_ticks;
 
 /* RAM-only parameters; not written to NVM. */
 uint16_t SW6306_LowCurrentThreshold_mA = 80U;
@@ -223,10 +228,12 @@ void SW6306_AlgoInit(void)
     s_learn_state = SW6306_LEARN_ST_UNKNOWN;
     s_load_phase = 0U;
     s_capacity_cycle = 1U;
+    s_idle_remove_ticks = 0U;
     s_special_mode = SW6306_SPECIAL_NONE;
     s_special_toggle_req = 0U;
     s_slow_stop_count = 0U;
     s_last_high_load_tick = xTaskGetTickCount();
+    s_idle_remove_ticks = 0U;
 
     /* 算法层配置是唯一真实配置源；容量学习固定常开。
      * 注意这里只“确保使能”，不清 LEARN_END。 */
@@ -323,6 +330,25 @@ void SW6306_AlgoUpdate(void)
 /*************************** 小电流与慢充策略开始 *******************************/
 /* UI requests stay in RAM; this runs in SW6306_task. Low current ends after
  * 1h without IBUS>80mA. Slow charge halves current configured input power. */
+/* Power-path idle cleanup: require 1s with battery discharge < threshold.
+ * WLED/SOS keeps ownership of the metering A1 until post-off removal.
+ * Only queue work here; all register I/O remains in the SW6306 task. */
+static void sw6306_idle_port_tick(void)
+{
+    if (SW6306_IsCharging() || s_special_mode != SW6306_SPECIAL_NONE ||
+        WLED_AlgoMeterBusy() ||
+        SW6306_ReadIBAT() >= SW6306_LowCurrentThreshold_mA) {
+        s_idle_remove_ticks = 0U;
+        return;
+    }
+    if (s_idle_remove_ticks < SW6306_IDLE_REMOVE_TICKS) ++s_idle_remove_ticks;
+    if (s_idle_remove_ticks >= SW6306_IDLE_REMOVE_TICKS &&
+        (SW6306_IsPortA1ON() || SW6306_IsPortC1ON())) {
+        sw6306_algo_set_command(SW6306_CMD_IDLE_REMOVE);
+        s_idle_remove_ticks = 0U;
+    }
+}
+
 void SW6306_AlgoService100ms(void)
 {
     uint8_t toggle;
@@ -359,7 +385,8 @@ void SW6306_AlgoService100ms(void)
         s_last_high_load_tick = now;
         sw6306_algo_set_command(SW6306_CMD_POWER | SW6306_CMD_LOW_CURRENT);
     }
-}
+    sw6306_idle_port_tick();
+
 
 sw6306_special_mode_t SW6306_AlgoGetSpecialMode(void)
 {
@@ -446,6 +473,20 @@ void SW6306_AlgoProcessCommands(void)
     if (cmd & SW6306_CMD_LOW_CURRENT) {
         SW6306_SetLowCurrentMode(s_special_mode == SW6306_SPECIAL_LOW_CURRENT);
     }
+    /* A2/C2 have no connectors: always remove after SW6306 initialization. */
+    if (cmd & SW6306_CMD_UNUSED_REMOVE) {
+        SW6306_PortA2Remove();
+        SW6306_PortC2Remove();
+    }
+    /* Revalidate before writing: the separate WLED task can claim A1 now. */
+    if ((cmd & SW6306_CMD_IDLE_REMOVE) &&
+        !SW6306_IsCharging() &&
+        s_special_mode == SW6306_SPECIAL_NONE &&
+        !WLED_AlgoMeterBusy() &&
+        SW6306_ReadIBAT() < SW6306_LowCurrentThreshold_mA) {
+        if (SW6306_IsPortA1ON()) SW6306_PortA1Remove();
+        if (SW6306_IsPortC1ON()) SW6306_PortC1Remove();
+    }
 
     if (cmd & SW6306_CMD_LEARN_ENABLE) {
         SW6306_CapacityLearningSet(1U);
@@ -482,10 +523,12 @@ void SW6306_AlgoOnDriverReinitialized(void)
     s_learn_state = SW6306_LEARN_ST_UNKNOWN;
     s_load_phase = 0U;
     s_capacity_cycle = 1U;
+    s_idle_remove_ticks = 0U;
     sw6306_algo_set_command(SW6306_CMD_PROTOCOL |
                             SW6306_CMD_POWER |
                             SW6306_CMD_LEARN_ENABLE |
-                            SW6306_CMD_LOW_CURRENT);
+                            SW6306_CMD_LOW_CURRENT |
+                            SW6306_CMD_UNUSED_REMOVE);
 }
 /*************************** SW6306 配置应用算法结束 ****************************/
 
