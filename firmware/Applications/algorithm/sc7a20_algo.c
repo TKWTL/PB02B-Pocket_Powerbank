@@ -90,8 +90,8 @@ void SC7A20_AlgoLoadSample(void)
  * Shared PB8/EXTI8 is low-active; ISR always wakes without classifying source.
  * Motion: AOI1 (0x30) XYZ OR + high-pass (CTRL2.HPIS1), INT1 CTRL3[6].
  * Pickup: AOI2 (0x34) 6D Movement XYZ axes, INT1 CTRL3[5].
- * Motion experiment: 25Hz / 2g LP mode; Pickup alone: 10Hz / 2g LP mode.
- * Both share the same ODR if enabled together. IRQ remains non-latched
+ * Both Motion and Pickup use a shared 25Hz / 2g LP ODR while either is enabled.
+ * IRQ remains non-latched
  * to avoid holding the shared SW6306 line low.
  * No added CPU classification or sampling-rate escalation on wake.
  */
@@ -162,13 +162,11 @@ void SC7A20_AlgoPmSuspend(void *ctx)
         routes |= SC7A20_CTRL3_I1_AOI2;
     }
 
-    /* Stage 1 experiment: raise Motion ODR from 10 to 25Hz ONLY;
-     * retain its 192mg threshold, duration=0 and HPIS1-only filtering.
-     * The sensor has one shared ODR, so Pickup-only stays at 10Hz,
-     * whereas enabling both detectors selects 25Hz. */
+    /* Shared ODR: both wake engines run at 25Hz, including Pickup-only.
+     * Motion's sporadic triggers require diagnosis; leave HPIS1, 192mg
+     * threshold and duration 0 unchanged for a controlled test. */
     SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
-        (SC7A20_AlgoConfig.motion_wake ? SC7A20_ODR_25HZ : SC7A20_ODR_10HZ) |
-        SC7A20_CTRL1_LPEN | SC7A20_DEFAULT_AXIS_EN);
+        SC7A20_ODR_25HZ | SC7A20_CTRL1_LPEN | SC7A20_DEFAULT_AXIS_EN);
 
     /* Wait long enough for either ODR's HPF and 6D engines to settle;
      * routing INT1 immediately previously caused false wake-up loops. */

@@ -21,13 +21,13 @@ typedef enum {
 } sc7a20_orientation_t;
 
 typedef struct {
-    uint8_t pickup_wake;   /* AOI2/6D -> INT1；单独启用为10Hz */
-    uint8_t motion_wake;   /* AOI1+HPF -> INT1；实验阶段25Hz（共用ODR） */
+    uint8_t pickup_wake;   /* AOI2/6D -> INT1，休眠共享25Hz */
+    uint8_t motion_wake;   /* AOI1+HPF -> INT1，休眠共享25Hz */
 } sc7a20_algo_config_t;
 
 extern sc7a20_algo_config_t SC7A20_AlgoConfig;
 
-/* 10/25Hz, FS=2g -> INTx_THS LSB=16mg (LIS2DH12-compatible; verify on SC7A20).
+/* 25Hz sleep, FS=2g -> INTx_THS LSB=16mg (LIS2DH12-compatible; verify on SC7A20).
  * 6D: return to 32LSB=512mg: the previous 54LSB value lost all observed
  * pickup events. Revisit after validating actual INT2_SOURCE responses.
  * Motion: 12LSB=192mg, zero duration catches single 10Hz samples.

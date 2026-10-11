@@ -17,6 +17,7 @@ static uint8_t s_shown_valid, s_shown_menu;
 static const menu_page_t *s_shown_page;
 static const menu_app_t *s_shown_app;
 static menu_trans_kind_t s_shown_kind;
+static uint8_t s_wake_main_no_anim; /* one-shot for long-sleep lock screen */
 
 static menu_trans_kind_t current_scene_kind(void)
 {
@@ -65,7 +66,7 @@ static void status_timer_cb(lv_timer_t *t)
 /* Cross-page transition commit. Called only after the old scene EXIT ends.
  * Load the new screen before freeing the former application's active LVGL
  * root. This also covers Main -> menu without deleting the visible screen. */
-static void menu_redraw_commit(void)
+static void menu_redraw_commit_impl(uint8_t animate)
 {
     const menu_app_t *app = menu_app_active();
     uint8_t next_menu = menu_is_active();
@@ -92,7 +93,12 @@ static void menu_redraw_commit(void)
     s_shown_kind = next_kind;
     s_shown_valid = 1U;
     lv_obj_invalidate(lv_screen_active());
-    menu_ui_transition_enter(next_kind, lv_screen_active());
+    if (animate) menu_ui_transition_enter(next_kind, lv_screen_active());
+}
+
+static void menu_redraw_commit(void)
+{
+    menu_redraw_commit_impl(1U);
 }
 
 static void menu_redraw_handler(void)
@@ -101,6 +107,14 @@ static void menu_redraw_handler(void)
     const menu_page_t *next_page = next_menu ? menu_current_page() : NULL;
     const menu_app_t *next_app = next_menu ? NULL : menu_app_active();
 
+    /* A long-sleep return to Main must bypass both EXIT and ENTER while
+     * the backlight is still off. Subsequent Main->menu remains animated. */
+    if (s_wake_main_no_anim && !next_menu && next_app == &menu_app_main) {
+        s_wake_main_no_anim = 0U;
+        menu_ui_transition_cancel();
+        menu_redraw_commit_impl(0U);
+        return;
+    }
     /* Intra-page NEXT/PREV and value edits retain the existing animation. */
     if (menu_ui_transition_busy()) return;
     if (s_shown_valid && (s_shown_menu != next_menu ||
@@ -309,6 +323,7 @@ void ui_task_func(void *pvParameters)
              * page/stack/index；用户按MENU/PREV即可回到睡前页面。 */
             if (menu_is_active() && wake_home_sec != 0U &&
                 pm_api_get_last_sleep_seconds() >= wake_home_sec) {
+                s_wake_main_no_anim = 1U;
                 menu_show_main_locked();
             }
 

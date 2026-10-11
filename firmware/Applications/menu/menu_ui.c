@@ -1259,19 +1259,11 @@ static void trans_apply(uint8_t progress)
     }
 }
 
-static void trans_tick(void)
+/* Restore original coordinates if a scene switch bypasses an unfinished
+ * transition. Shared by normal animation completion and wake-home cancel. */
+static void trans_restore_items(void)
 {
-    uint8_t i;
-    if (s_trans_stage == MENU_TRANS_IDLE) return;
-    ++s_trans_ticks;
-    menu_anim_step(&s_trans_pid);
-    trans_apply((uint8_t)s_trans_pid.current);
-    if (s_trans_pid.active) return;
-
-    /* Settle precisely to original geometry (no half-pixel residuals).
-     * Next scene may reuse these objects, so never leave them offset. */
-    trans_apply(100U);
-    for (i = 0U; i < s_trans_count; i++) {
+    for (uint8_t i = 0U; i < s_trans_count; ++i) {
         lv_obj_t *obj = s_trans_items[i].obj;
         if (obj == s_indicator)
             lv_obj_align(obj, LV_ALIGN_TOP_RIGHT, -3, 0);
@@ -1279,7 +1271,34 @@ static void trans_tick(void)
             lv_obj_align(obj, LV_ALIGN_TOP_RIGHT, -3, ICON_TOP_Y);
         else
             lv_obj_set_pos(obj, s_trans_items[i].x, s_trans_items[i].y);
+        if (s_trans_items[i].group == MENU_TRANS_GROUP_MAIN_CENTER ||
+            s_trans_items[i].group == MENU_TRANS_GROUP_ICON_CENTER)
+            lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
     }
+    if (s_trans_kind == MENU_TRANS_TEXT && s_item)
+        lv_obj_remove_flag(s_item, LV_OBJ_FLAG_HIDDEN);
+}
+
+void menu_ui_transition_cancel(void)
+{
+    if (s_trans_stage != MENU_TRANS_IDLE) trans_restore_items();
+    s_trans_stage = MENU_TRANS_IDLE;
+    s_trans_count = 0U;
+    s_trans_commit = NULL;
+    s_trans_pid.active = false;
+}
+
+static void trans_tick(void)
+{
+    if (s_trans_stage == MENU_TRANS_IDLE) return;
+    ++s_trans_ticks;
+    menu_anim_step(&s_trans_pid);
+    trans_apply((uint8_t)s_trans_pid.current);
+    if (s_trans_pid.active) return;
+
+    /* Restore the previous page's geometry before reusing it. */
+    trans_apply(100U);
+    trans_restore_items();
     if (s_trans_stage == MENU_TRANS_EXIT) {
         void (*commit)(void) = s_trans_commit;
         s_trans_commit = NULL;
