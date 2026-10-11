@@ -2,6 +2,27 @@
 
 #include "pm_device.h"
 #include "pm_sleep_timer.h"
+#include "pm_api.h"
+#include "FreeRTOS.h"
+#include "task.h"
+
+/* Quiesce all normal load traffic before executing PM I2C register writes.
+ * PM callbacks have priority while the gate is active, preserving the
+ * existing I2C single-master task semantics without another mutex. */
+static uint8_t pm_quiesce_bus(void)
+{
+    uint16_t waited = 0U;
+    pm_api_sleep_gate_set(1U);
+    vTaskDelay(pdMS_TO_TICKS(20)); /* Let workers observe the gate. */
+    while (!pm_api_bus_locks_idle() && waited < 1000U) {
+        vTaskDelay(pdMS_TO_TICKS(5));
+        waited += 5U;
+    }
+    if (pm_api_bus_locks_idle()) return 1U;
+    pm_api_sleep_gate_set(0U);
+    return 0U;
+}
+
 
 #ifndef PM_PENDING_HOLD_TICKS
 #define PM_PENDING_HOLD_TICKS 3
@@ -33,7 +54,9 @@ static void pm_handle_transition(pm_power_state_t from, pm_power_state_t to)
 
     /* 任何路径进入 RUN → 恢复外设 */
     if (to == PM_STATE_RUN && from != PM_STATE_RUN) {
+        /* Resume I2C devices BEFORE normal task I2C traffic restarts. */
         pm_device_resume_all();
+        pm_api_sleep_gate_set(0U);
     }
 }
 
@@ -173,6 +196,15 @@ pm_power_state_t pm_controller_step(pm_controller_t *ctx)
     in.post_deepsleep_hold = (ctx->post_hold_ticks != 0) ? 1 : 0;
 
     next = pm_policy_next_state(ctx->state, &in);
+    if ((ctx->state == PM_STATE_SLEEP_PREPARE && next == PM_STATE_DEEPSLEEP) ||
+        (next == PM_STATE_STANDBY && ctx->state != PM_STATE_STANDBY)) {
+        if (!pm_quiesce_bus()) {
+            /* Never enter power-off with an active/broken transaction. */
+            ctx->ui_active = 1U;
+            pm_sleep_timer_refresh();
+            next = PM_STATE_RUN;
+        }
+    }
     pm_handle_transition(ctx->state, next);
 
     if (ctx->state == PM_STATE_DEEPSLEEP && next == PM_STATE_SLEEP_PENDING) {

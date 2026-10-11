@@ -213,19 +213,8 @@ static void pm_enter_deep_sleep(void)
     s_last_sleep_seconds = 0U;
     s_sleep_rtc_valid = pm_rtc_stamp_seconds(&s_sleep_rtc_stamp);
 
-    /* ① 睡眠总线门控：置位 → load/SW6306 任务停止发起新总线读写（下一轮让出） */
-    pm_api_sleep_gate_set(1);
-
-    /* ② 等待所有总线互斥锁空闲（已发起的 I2C/SPI 读写完成）：
-     *    调度器仍在运行，load 任务见门控后停止新事务，当前事务完成后释放锁；
-     *    比固定忙等更可靠（不依赖时间猜测）。最多等 1s。 */
-    {
-        uint16_t wait = 0;
-        while (pm_api_bus_locks_idle() == 0 && wait < 1000) {
-            vTaskDelay(pdMS_TO_TICKS(5));
-            wait += 5;
-        }
-    }
+    /* Bus gate + drain already ran BEFORE pm_device_suspend_all().
+     * Leave it set across WFI and until pm_device_resume_all(). */
 
     /* ③ 挂起 FreeRTOS 调度器：防止休眠过程中其他任务启动新的事务 */
     vTaskSuspendAll();
@@ -337,8 +326,8 @@ static void pm_enter_deep_sleep(void)
     s_wk_btn = 2;   /* ~100ms (2×50ms) */
     pm_api_set_unstable_wake(1);
 
-    /* 解除睡眠门控：load 类任务恢复总线读写 */
-    pm_api_sleep_gate_set(0);
+    /* Gate remains asserted: pm_controller RUN transition first restores
+     * sensor/SW6306 state, then releases normal load-task I2C traffic. */
 }
 
 static void pm_enter_standby(void)
