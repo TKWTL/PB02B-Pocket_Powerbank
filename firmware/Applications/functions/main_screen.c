@@ -11,7 +11,7 @@
 #include "mini_format.h"
 #include <string.h>
 
-#define MAIN_BAT_X              72
+#define MAIN_BAT_X              69
 #define MAIN_ROW_TOP            (-1)
 #define MAIN_ROW_MID            13
 #define MAIN_ROW_BOT            27
@@ -185,10 +185,9 @@ static void update_clock_and_temp(void)
     float temp = SW6306_ReadNTCTemp();
     int32_t t10 = (int32_t)(temp * 10.0f + ((temp >= 0.0f) ? 0.5f : -0.5f));
 
-    /* Rounded -10.0C and below omit decimals; all strings fit 44px.
-     * Degree glyph extends above ordinary capital/digit pixels; the
-     * temperature glyph shares the fixed top row. */
-    if (t10 <= -100 || t10 >= 100) {
+    /* Keep 0.1C through +99.9C; at -10C or +100C switch to integer
+     * to stay inside the 44px temperature slot. */
+    if (t10 <= -100 || t10 >= 1000) {
         int32_t integer = (t10 >= 0) ? (t10 + 5) / 10 : -((-t10 + 5) / 10);
         mini_snprintf(temp_buf, sizeof(temp_buf), "%ld°C", (long)integer);
     } else {
@@ -225,7 +224,7 @@ static void main_refresh(void)
     static char bus_pw[12], bat_pw[12], bus_v[12], bat_v[12], dir[2];
     uint32_t bus_uw = (uint32_t)SW6306_ReadVBUS() * SW6306_ReadIBUS();
     uint32_t bat_uw = (uint32_t)SW6306_ReadVBAT() * SW6306_ReadIBAT();
-    uint32_t centiw, deciw, cv;
+    uint32_t centiw, cv;
     sw6306_special_mode_t mode = SW6306_AlgoGetSpecialMode();
 
     update_ports();
@@ -241,11 +240,10 @@ static void main_refresh(void)
         (mode == SW6306_SPECIAL_LOW_CURRENT) ? 0xFF80CC :
         (mode == SW6306_SPECIAL_SLOW_CHARGE) ? 0x45DD85 : 0xF0F2F5), 0);
 
-    deciw = (bat_uw + 50000U) / 100000U;
-    if (deciw > 999U) deciw = 999U; /* Preserve five-character battery slot. */
-    mini_snprintf(bat_pw, sizeof(bat_pw), "%02lu.%luW",
-                  (unsigned long)(deciw / 10U),
-                  (unsigned long)(deciw % 10U));
+    centiw = (bat_uw + 5000U) / 10000U;
+    mini_snprintf(bat_pw, sizeof(bat_pw), "%02lu.%02luW",
+                  (unsigned long)(centiw / 100U),
+                  (unsigned long)(centiw % 100U));
     lv_label_set_text_static(s_bat_power, bat_pw);
 
     cv = ((uint32_t)SW6306_ReadVBUS() + 5U) / 10U;
@@ -253,17 +251,16 @@ static void main_refresh(void)
                   (unsigned long)(cv / 100U), (unsigned long)(cv % 100U));
     lv_label_set_text_static(s_bus_volt, bus_v);
 
-    cv = ((uint32_t)SW6306_ReadVBAT() + 5U) / 10U;
-    mini_snprintf(bat_v, sizeof(bat_v), "%lu.%02luV",
-                  (unsigned long)(cv / 100U), (unsigned long)(cv % 100U));
+    cv = SW6306_ReadVBAT();
+    mini_snprintf(bat_v, sizeof(bat_v), "%lu.%03luV",
+                  (unsigned long)(cv / 1000U), (unsigned long)(cv % 1000U));
     lv_label_set_text_static(s_bat_volt, bat_v);
 
     dir[0] = SW6306_IsCharging() ? '>' :
-             (SW6306_IsDischarging() ? '<' : '-');
+             (SW6306_IsDischarging() ? '<' : '\0');
     dir[1] = '\0';
     lv_label_set_text_static(s_dir, dir);
-    lv_obj_set_style_text_color(s_dir, lv_color_hex(
-        (dir[0] == '-') ? 0x8A93A0 : 0xEDF1F7), 0);
+    lv_obj_set_style_text_color(s_dir, lv_color_hex(0xEDF1F7), 0);
 
     update_eta(bat_uw);
     update_clock_and_temp();
@@ -279,6 +276,7 @@ static void main_timer_cb(lv_timer_t *t)
 
 static void main_screen_create(void)
 {
+    lv_obj_t *frame;
     if (s_scr) return;
 
     s_scr = lv_obj_create(NULL);
@@ -289,16 +287,29 @@ static void main_screen_create(void)
 
     /* Actual u14b digit glyphs use rows 2..11 of a 14px logical line:
      * y=-1/13/27 => visible y=1..10/15..24/29..38. */
-    s_port      = make_label(2,   MAIN_ROW_TOP, 56, LV_TEXT_ALIGN_LEFT);
+    /* Port outline mirrors the battery outline, without colored backgrounds
+     * that would reduce contrast for the red A and yellow C indicators. */
+    frame = lv_obj_create(s_scr);
+    lv_obj_set_pos(frame, 2, 0);
+    lv_obj_set_size(frame, 59, 14);
+    lv_obj_set_style_radius(frame, 2, 0);
+    lv_obj_set_style_bg_opa(frame, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(frame, 1, 0);
+    lv_obj_set_style_border_color(frame, lv_color_white(), 0);
+    lv_obj_set_style_pad_all(frame, 0, 0);
+    lv_obj_remove_flag(frame, LV_OBJ_FLAG_SCROLLABLE);
+    s_port      = make_label(4,   MAIN_ROW_TOP, 56, LV_TEXT_ALIGN_LEFT);
     s_bus_power = make_label(2,   MAIN_ROW_MID, 56, LV_TEXT_ALIGN_LEFT);
     s_bus_volt  = make_label(2,   MAIN_ROW_BOT, 56, LV_TEXT_ALIGN_LEFT);
 
-    s_dir       = make_label(64,  MAIN_ROW_TOP, 8, LV_TEXT_ALIGN_CENTER);
-    s_bat_power = make_label(72,  MAIN_ROW_MID, 40, LV_TEXT_ALIGN_CENTER);
-    s_bat_volt  = make_label(72,  MAIN_ROW_BOT, 40, LV_TEXT_ALIGN_CENTER);
+    /* The 8px arrow exactly bridges the port outline (x2..60) and
+     * fixed battery (x69..108); idle draws no arrow but keeps layout. */
+    s_dir       = make_label(61,  MAIN_ROW_TOP, 8, LV_TEXT_ALIGN_CENTER);
+    s_bat_power = make_label(65,  MAIN_ROW_MID, 48, LV_TEXT_ALIGN_CENTER);
+    s_bat_volt  = make_label(65,  MAIN_ROW_BOT, 48, LV_TEXT_ALIGN_CENTER);
 
-    /* Use the common top-row baseline; degree uses the spare margin. */
-    s_temp      = make_label(114, MAIN_ROW_TOP, 44, LV_TEXT_ALIGN_RIGHT);
+    /* Move temperature glyphs 1px down, using the top-row spare margin. */
+    s_temp      = make_label(114, MAIN_ROW_TOP + 1, 44, LV_TEXT_ALIGN_RIGHT);
     s_clock     = make_label(118, MAIN_ROW_MID, 40, LV_TEXT_ALIGN_RIGHT);
     s_eta       = make_label(118, MAIN_ROW_BOT, 40, LV_TEXT_ALIGN_RIGHT);
     lv_obj_set_style_text_color(s_bat_power, lv_color_hex(0xD6DCE3), 0);
