@@ -101,10 +101,9 @@ void SC7A20_AlgoLoadSample(void)
  * Shared PB8/EXTI8 is low-active; ISR always wakes without classifying source.
  * Motion: AOI1 (0x30) XYZ OR + high-pass (CTRL2.HPIS1), INT1 CTRL3[6].
  * Pickup: AOI2 (0x34) 6D Movement XYZ axes, INT1 CTRL3[5].
- * Both engines share 25Hz / 2g LP ODR. Motion HPM=11 automatically
- * resets HPF on interrupt (LIS2DH12-compatible experimental baseline).
- * Reading REFERENCE on resume in HPM=00 regressed to zero wake events;
- * restore prior HPM behavior before isolating the recurring-wake fault.
+ * Both engines share 25Hz / 2g LP ODR. Motion HPF trial: HPM=00,
+ * reset REFERENCE once before arming AOI1 to remove static gravity.
+ * Do not read REFERENCE on resume (previous regression).
  * PB8 interrupt remains non-latched to coexist with SW6306.
  */
 static void sc7a20_wake_routes_off(void)
@@ -159,11 +158,11 @@ void SC7A20_AlgoPmSuspend(void *ctx)
         SC7A20_ByteWrite(SC7A20_CTRG_INT1_DURATION, SC7A20_MOTION_DUR_REG);
         /* Keep INT1_CFG=0 through HPF startup; re-enable just before
          * connecting the output to PB8 in the sleep entry path. */
-        /* Restore HPM=11 autoreset on interrupt. Prior HPM=00 plus a
-         * resume REFERENCE read prevented even the first Motion wake. */
+        /* HPM=00: REFERENCE read resets the HPF to current gravity.
+         * HPM=11 left AOI1 asserted at rest (SRC=55/65), disabling wake. */
         SC7A20_ByteModify(SC7A20_CTRG_CTRL2,
             SC7A20_CTRL2_HPM_MSK | SC7A20_CTRL2_HPIS1,
-            SC7A20_HPM_AUTORST | SC7A20_CTRL2_HPIS1);
+            SC7A20_HPM_NORMAL_RST | SC7A20_CTRL2_HPIS1);
         routes |= SC7A20_CTRL3_I1_AOI1;
     }
 
@@ -178,7 +177,7 @@ void SC7A20_AlgoPmSuspend(void *ctx)
         routes |= SC7A20_CTRL3_I1_AOI2;
     }
 
-    /* Motion: 25Hz, 10LSB (160mg), duration 0, HPF autoreset.
+    /* Motion: 25Hz, 10LSB (160mg), duration 0, HPF reference reset.
      * Pickup threshold and 6D mode are unchanged. */
     SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
         SC7A20_ODR_25HZ | SC7A20_CTRL1_LPEN | SC7A20_DEFAULT_AXIS_EN);
@@ -187,7 +186,7 @@ void SC7A20_AlgoPmSuspend(void *ctx)
      * routing INT1 immediately previously caused false wake-up loops. */
     vTaskDelay(pdMS_TO_TICKS(420U));
     if (SC7A20_AlgoConfig.motion_wake)
-        SC7A20_ByteRead(SC7A20_CTRG_REFERENCE, &scratch);
+        SC7A20_ByteRead(SC7A20_CTRG_REFERENCE, &scratch); /* HPF DC reset */
     vTaskDelay(pdMS_TO_TICKS(120U));
     SC7A20_ByteRead(SC7A20_STRG_INT1_SOURCE, &scratch);
     SC7A20_ByteRead(SC7A20_STRG_INT2_SOURCE, &scratch);
@@ -272,8 +271,8 @@ void SC7A20_AlgoPmResume(void *ctx)
         sc7a20_wake_last_src1 = src;
         SC7A20_ByteRead(SC7A20_STRG_INT2_SOURCE, &src);
         sc7a20_wake_last_src2 = src;
-        /* HPM=11 resets the HPF on interrupt; do not read REFERENCE
-         * during resume (the last trial regressed to no Motion wake). */
+        /* Only reset HPF at next suspend, after settling and before AOI1
+         * re-arm. Reading REFERENCE during resume previously regressed. */
         ++sc7a20_wake_resume_count;
         /* Clears INT1_CFG after wake, having captured its event source. */
         sc7a20_wake_routes_off(); /* Release shared PB8 before returning. */

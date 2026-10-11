@@ -31,7 +31,7 @@ extern sc7a20_algo_config_t SC7A20_AlgoConfig;
  * 6D: return to 32LSB=512mg: the previous 54LSB value lost all observed
  * pickup events. Revisit after validating actual INT2_SOURCE responses.
  * Motion: 10LSB=160mg, zero duration catches single 25Hz samples.
- * HPM=11: auto-reset HPF on event; still read REFERENCE before re-arm.
+ * HPM=00: explicitly reset HPF via REFERENCE before each sleep re-arm.
  * In low-power mode CTRL4.HR MUST be 0 (LPen=1/HR=1 is invalid). */
 #define SC7A20_PICKUP_THS_REG        32U
 #define SC7A20_PICKUP_DUR_REG         1U
