@@ -403,7 +403,9 @@ void menu_handle_key(uint32_t lv_key)
             if (s_menu.depth > 0) {
                 pop_page();
             } else {
-                menu_close();
+                /* Main was released after its EXIT animation. Recreate it
+                 * when returning from the root menu, even after other apps. */
+                menu_app_enter(&menu_app_main);
             }
             break;
         case MENU_ITEM_PAGE:

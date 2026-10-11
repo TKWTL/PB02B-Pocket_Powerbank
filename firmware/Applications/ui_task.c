@@ -76,6 +76,9 @@ static void menu_redraw_commit(void)
         menu_ui_transition_reset_page();
         menu_ui_redraw();
     } else if (app && app->activate) {
+        /* Root Return can re-enter Main after its prior screen was freed.
+         * create() is idempotent for this app. */
+        if (app == &menu_app_main && app->create) app->create();
         app->activate();
         menu_ui_redraw();
     }
