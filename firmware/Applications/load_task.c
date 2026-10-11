@@ -71,6 +71,7 @@ static void data_refresh_all(void)
     }
 
     SC7A20_AlgoLoadSample();
+    if (SC7A20_IsInitialized()) SC7A20_TempLoad();
 
     if (SW6306_IsInitialized()) {
         /* SW6306刚从LPSet唤醒时ADC需要稳定时间；任务只负责时序，
@@ -123,6 +124,7 @@ void load_task(void *pvParameters)
     uint32_t period_cnt = 0U;
     uint8_t sc7_cnt = 0U;
     uint8_t sd3078_slow_cnt = 0U;
+    uint8_t sc7_temp_cnt = 0U;
 
     WLED_Init();
     WLED_AlgoInit();
@@ -145,6 +147,11 @@ void load_task(void *pvParameters)
         if (++sc7_cnt >= (SC7A20_ALGO_SAMPLE_MS / 10U)) {
             sc7_cnt = 0U;
             SC7A20_AlgoLoadSample();
+            /* SC7A20 temperature mirror at 0.5Hz; don't add UI-thread I2C. */
+            if (++sc7_temp_cnt >= 10U) {
+                sc7_temp_cnt = 0U;
+                if (SC7A20_IsInitialized()) SC7A20_TempLoad();
+            }
         }
 
         if (pm_api_data_refresh_pending() != 0) {

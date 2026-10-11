@@ -265,7 +265,7 @@ SC7A20_RET SC7A20_TempLoad(SC7A20_NOARG)
     uint8_t t[2];                    /* 读缓冲：失败时不改动镜像 */
     SC7A20_FUNC_BEGIN;
     SC7A20_MUTEX_TAKE;
-    if(SC7A20_I2C_Receive(SC7A20_I2C_ADDR, SC7A20_STRG_OUT_TEMP_L, t, 2, (uint8_t*)&SC7A20_Status.flag) != I2C_OK)
+    if(SC7A20_I2C_Receive(SC7A20_I2C_ADDR, SC7A20_STRG_OUT_TEMP_L | 0x80U, t, 2, (uint8_t*)&SC7A20_Status.flag) != I2C_OK)
     {
         SC7A20_MARK_OFFLINE_ON_I2C_FAIL();   /* 通信失败：清 initialized → 下轮 load_task 重新初始化 */
         SC7A20_MUTEX_GIVE;
@@ -276,10 +276,17 @@ SC7A20_RET SC7A20_TempLoad(SC7A20_NOARG)
     SC7A20_FUNC_END;
 }
 
-float SC7A20_ReadTemp(void)//读取温度（单位：°C）
+int16_t SC7A20_ReadTempRaw(void)
 {
-    //TODO: 12位温度数据转换为°C的公式需要按芯片实测标定
-    return (float)SC7A20_Status.temp;
+    /* Raw sensor register code. No Silan-provided conversion to absolute
+     * Celsius is available; exposing it as degrees would be misleading. */
+    return SC7A20_Status.temp;
+}
+
+float SC7A20_ReadTemp(void)
+{
+    /* Historical API returns raw register code until °C calibration exists. */
+    return (float)SC7A20_ReadTempRaw();
 }
 
 /******************************状态操作区**************************************/
@@ -532,6 +539,10 @@ SC7A20_RET SC7A20_Init(SC7A20_NOARG)
                           (SC7A20_DEFAULT_BDU ? SC7A20_CTRL4_BDU : 0x00U) |
                           (SC7A20_DEFAULT_FULLSCALE & SC7A20_CTRL4_FS_MSK) |
                           (SC7A20_DEFAULT_HIGHRES ? SC7A20_CTRL4_HR : 0x00U));
+        /* Experimental temperature ADC enable. This register is listed in
+         * SC7A20 v0.4 but bit7/6 assignment is not documented there;
+         * 0xC0 is LIS2DH-compatible and MUST be verified on this board. */
+        SC7A20_SPAWN_ARGS(SC7A20_ByteWrite, SC7A20_CTRG_TEMP_CFG, 0xC0U);
         //控制寄存器1：ODR（当前默认10Hz，供低速姿态检测）+ 轴使能
         SC7A20_SPAWN_ARGS(SC7A20_ByteWrite, SC7A20_CTRG_CTRL1,
                           (SC7A20_DEFAULT_ODR & SC7A20_CTRL1_ODR_MSK) |

@@ -684,6 +684,7 @@ static char menu_status_health[24];      /* 健康度 */
 static char menu_status_cycles[24];      /* 等效完整循环 EFC */
 static char menu_status_learn[24];       /* 容量学习状态 */
 static char menu_status_accel_x[20], menu_status_accel_y[20], menu_status_accel_z[20];
+static char menu_status_accel_temp[24];  /* SC7A20 on-chip temperature ADC raw code */
 static char menu_status_time[16];        /* 时分秒 */
 static char menu_status_date[16];        /* 年月日 */
 static char menu_status_temp[16];        /* 温度 */
@@ -706,6 +707,7 @@ static const menu_item_t menu_items_status_accel[] = {
     MENU_ITEM_INFO_(menu_status_accel_x),
     MENU_ITEM_INFO_(menu_status_accel_y),
     MENU_ITEM_INFO_(menu_status_accel_z),
+    MENU_ITEM_INFO_(menu_status_accel_temp),
 };
 MENU_PAGE_("Accelerator", menu_page_status_accel, menu_items_status_accel);
 
@@ -800,7 +802,10 @@ void menu_status_refresh(void)
                      (cg < 0) ? "-" : "",
                      (unsigned long)(mag / 100U), (unsigned long)(mag % 100U));
         }
+        mini_snprintf(menu_status_accel_temp, sizeof(menu_status_accel_temp),
+                      "TempADC: 0x%04X", (unsigned)(uint16_t)SC7A20_ReadTempRaw());
     } else {
+        mini_snprintf(menu_status_accel_temp, sizeof(menu_status_accel_temp), "TempADC: --");
         mini_snprintf(menu_status_accel_x, sizeof(menu_status_accel_x), "X: --");
         mini_snprintf(menu_status_accel_y, sizeof(menu_status_accel_y), "Y: --");
         mini_snprintf(menu_status_accel_z, sizeof(menu_status_accel_z), "Z: --");

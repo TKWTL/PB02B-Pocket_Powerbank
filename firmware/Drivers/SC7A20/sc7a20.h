@@ -397,7 +397,8 @@ void SC7A20_SetZCalibration(int16_t zero_raw, float slope_mg_per_lsb);
 
 //温度操作
 SC7A20_RET SC7A20_TempLoad(SC7A20_NOARG);      //读取温度原始数据镜像（0x0C/0x0D）
-float SC7A20_ReadTemp(void);                   //读取温度（单位：°C）
+int16_t SC7A20_ReadTempRaw(void);              //读取原始温度寄存器码，不是绝对°C
+float SC7A20_ReadTemp(void);                   //旧接口兼容，当前返回原始码（未校准）
 
 //状态操作
 SC7A20_RET SC7A20_StatusLoad(SC7A20_NOARG);    //读取状态寄存器镜像（0x27）

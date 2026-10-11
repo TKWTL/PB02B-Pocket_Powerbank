@@ -81,51 +81,100 @@ void SC7A20_AlgoLoadSample(void)
 }
 /************************* SC7A20 180°姿态判断算法结束 **************************/
 
-/*********************** SC7A20 低功耗唤醒策略算法开始 ************************/
-/* Pickup Wake / Motion Wake 目前只建立电源策略基础，不配置具体阈值或INT路由：
- * - 任一开关开启：DeepSleep期间SC7A20保持10Hz ODR，后续可直接增加对应中断条件；
- * - 两者都关闭：沿用最低功耗路径，CTRL_REG1清零进入Power-down。
- * 唤醒后统一恢复正常10Hz采样；若休眠时Power-down清掉了轴使能，则用Init完整恢复。
- * 这两个开关仅为RAM运行时配置，不做NVM持久化。 */
+/**************** SC7A20 DeepSleep hardware wake monitor *****************
+ * Shared PB8/EXTI8 is low-active; ISR always wakes without classifying source.
+ * Motion: AOI1 (0x30) XYZ OR + high-pass (CTRL2.HPIS1), INT1 CTRL3[6].
+ * Pickup: AOI2 (0x34) 6D Movement XYZ axes, INT1 CTRL3[5].
+ * Both use 10Hz / 2g, non-latched interrupt to avoid holding the shared
+ * SW6306 IRQ line low. Thresholds are bring-up parameters, not verified.
+ * No added CPU classification or sampling-rate escalation on wake.
+ */
+static void sc7a20_wake_routes_off(void)
+{
+    /* Mask IRQ routes before reprogramming threshold/modes. */
+    SC7A20_ByteModify(SC7A20_CTRG_CTRL3,
+        SC7A20_CTRL3_I1_AOI1 | SC7A20_CTRL3_I1_AOI2, 0U);
+    SC7A20_ByteWrite(SC7A20_CTRG_INT1_CFG, 0U);
+    SC7A20_ByteWrite(SC7A20_CTRG_INT2_CFG, 0U);
+    SC7A20_ByteModify(SC7A20_CTRG_CTRL2, SC7A20_CTRL2_HPIS1, 0U);
+}
+
 void SC7A20_AlgoPmSuspend(void *ctx)
 {
+    uint8_t routes = 0U;
+    volatile uint8_t scratch;
     (void)ctx;
 
-    if (pm_api_transport_mode_requested() != 0U) {
-        /* 运输模式覆盖Pickup/Motion策略：三轴与ODR全部关闭。 */
-        (void)SC7A20_LowPowerSet();
-    } else if (SC7A20_AlgoConfig.pickup_wake || SC7A20_AlgoConfig.motion_wake) {
-        /* 正常运行时本来就是10Hz；若此前I2C故障把initialized清掉，则先尝试恢复。
-         * Init失败时退回Power-down，至少保证共享INT线极性和休眠功耗处于安全状态。 */
-        if (!SC7A20_IsInitialized()) {
-            (void)SC7A20_Init();
-        }
-        if (SC7A20_IsInitialized()) {
-            (void)SC7A20_SetODR(SC7A20_ODR_10HZ);
-            /* TODO: 分别按 Pickup/Motion 开关配置阈值、持续时间与 INT 路由。 */
-        } else {
-            (void)SC7A20_LowPowerSet();
-        }
-    } else {
-        (void)SC7A20_LowPowerSet();
+    if (!SC7A20_IsInitialized() && !pm_api_transport_mode_requested() &&
+        (SC7A20_AlgoConfig.pickup_wake || SC7A20_AlgoConfig.motion_wake))
+        SC7A20_Init();
+
+    if (!SC7A20_IsInitialized()) return;
+    sc7a20_wake_routes_off();
+    /* No temperature ADC needed while the CPU is asleep.
+     * TEMP_CFG bit semantics follow LIS2DH compatibility, unverified. */
+    SC7A20_ByteWrite(SC7A20_CTRG_TEMP_CFG, 0U);
+
+    if (pm_api_transport_mode_requested() ||
+        (!SC7A20_AlgoConfig.pickup_wake && !SC7A20_AlgoConfig.motion_wake)) {
+        SC7A20_LowPowerSet(); /* ODR=0, existing minimum-power path */
+        return;
     }
+
+    /* Keep low-active output (idle high) on shared PB8. Do not latch AOI. */
+    SC7A20_ByteModify(SC7A20_CTRG_CTRL6,
+        SC7A20_CTRL6_H_LACTIVE, SC7A20_CTRL6_H_LACTIVE);
+    SC7A20_ByteModify(SC7A20_CTRG_CTRL5,
+        SC7A20_CTRL5_LIR_INT1, 0U);
+
+    if (SC7A20_AlgoConfig.motion_wake) {
+        SC7A20_ByteWrite(SC7A20_CTRG_INT1_THS, SC7A20_MOTION_THS_REG);
+        SC7A20_ByteWrite(SC7A20_CTRG_INT1_DURATION, SC7A20_WAKE_DUR_REG);
+        SC7A20_ByteWrite(SC7A20_CTRG_INT1_CFG, SC7A20_INTMODE_OR |
+            SC7A20_INT_CFG_XHIE | SC7A20_INT_CFG_XLIE |
+            SC7A20_INT_CFG_YHIE | SC7A20_INT_CFG_YLIE |
+            SC7A20_INT_CFG_ZHIE | SC7A20_INT_CFG_ZLIE);
+        SC7A20_ByteModify(SC7A20_CTRG_CTRL2,
+            SC7A20_CTRL2_HPIS1, SC7A20_CTRL2_HPIS1);
+        routes |= SC7A20_CTRL3_I1_AOI1;
+    }
+
+    if (SC7A20_AlgoConfig.pickup_wake) {
+        SC7A20_ByteWrite(SC7A20_CTRG_INT2_THS, SC7A20_PICKUP_THS_REG);
+        SC7A20_ByteWrite(SC7A20_CTRG_INT2_DURATION, SC7A20_WAKE_DUR_REG);
+        SC7A20_ByteWrite(SC7A20_CTRG_INT2_CFG,
+            SC7A20_INTMODE_6D_MOTION |
+            SC7A20_INT_CFG_XHIE | SC7A20_INT_CFG_XLIE |
+            SC7A20_INT_CFG_YHIE | SC7A20_INT_CFG_YLIE |
+            SC7A20_INT_CFG_ZHIE | SC7A20_INT_CFG_ZLIE);
+        routes |= SC7A20_CTRL3_I1_AOI2;
+    }
+
+    /* 10Hz low-power engine, XYZ all enabled. Reset high-pass reference
+     * and clear any stale sources BEFORE connecting generators to INT1. */
+    SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
+        SC7A20_ODR_10HZ | SC7A20_CTRL1_LPEN | SC7A20_DEFAULT_AXIS_EN);
+    if (SC7A20_AlgoConfig.motion_wake)
+        SC7A20_ByteRead(SC7A20_CTRG_REFERENCE, &scratch);
+    SC7A20_ByteRead(SC7A20_STRG_INT1_SOURCE, &scratch);
+    SC7A20_ByteRead(SC7A20_STRG_INT2_SOURCE, &scratch);
+    SC7A20_ByteModify(SC7A20_CTRG_CTRL3,
+        SC7A20_CTRL3_I1_AOI1 | SC7A20_CTRL3_I1_AOI2, routes);
 }
 
 void SC7A20_AlgoPmResume(void *ctx)
 {
     (void)ctx;
-
-    if (SC7A20_AlgoConfig.pickup_wake || SC7A20_AlgoConfig.motion_wake) {
-        /* 保持唤醒检测时并未Power-down，通常只需确认10Hz；若通信异常导致
-         * initialized被清，则重新Init恢复完整默认配置。 */
-        if (SC7A20_IsInitialized()) {
-            (void)SC7A20_SetODR(SC7A20_ODR_10HZ);
-        } else {
-            (void)SC7A20_Init();
-        }
+    if (SC7A20_IsInitialized()) {
+        sc7a20_wake_routes_off(); /* Release shared PB8 before returning. */
+        /* Power-down mode removed XYZ enable bits; restore all of them. */
+        SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
+            SC7A20_ODR_10HZ | SC7A20_DEFAULT_AXIS_EN);
+        /* TEMP_CFG=0xC0 follows LIS2DH-like ADC_EN/TEMP_EN semantics.
+         * Silan v0.4 register list has no bit description: TODO_HW_VERIFY. */
+        SC7A20_ByteWrite(SC7A20_CTRG_TEMP_CFG, 0xC0U);
     } else {
-        /* LowPowerSet把CTRL_REG1整体写0，轴使能位也被清除，必须Init而不能只SetODR。 */
-        (void)SC7A20_Init();
+        SC7A20_Init();
     }
 }
-/*********************** SC7A20 低功耗唤醒策略算法结束 ************************/
+/*********************** wake monitor end *******************************/

@@ -1122,9 +1122,10 @@ static void trans_capture(menu_trans_kind_t kind, lv_obj_t *screen)
         s_head_pid.active = false;
         trans_add(s_icon_hint, MENU_TRANS_GROUP_ICON_TOP);
         trans_add(s_icon_clock, MENU_TRANS_GROUP_ICON_TOP);
+        /* ICON always keeps its native style: entire icon row moves vertically
+         * as one group; the selected icon must not converge to screen center. */
         for (i = 0U; i < s_icon_count; i++)
-            trans_add(s_icons[i].img, (i == s_last_index) ?
-                      MENU_TRANS_GROUP_ICON_CENTER : MENU_TRANS_GROUP_ICON_BOTTOM);
+            trans_add(s_icons[i].img, MENU_TRANS_GROUP_ICON_BOTTOM);
     } else if (kind == MENU_TRANS_WORD) {
         s_word_scroll.active = false;
         for (i = 0U; i < MENU_WORD_VISIBLE + 1U; i++)
@@ -1168,14 +1169,17 @@ static void trans_outside(const menu_trans_item_t *it, int32_t *x, int32_t *y)
 static void trans_apply(uint8_t progress)
 {
     bool entering = s_trans_stage == MENU_TRANS_ENTER;
-    bool center = (s_trans_motion == MENU_TRANS_EXIT_GATHER ||
+    /* ICON top captions up + all icons down even when destination MAIN
+     * asks other scenes to gather before switching screens. */
+    bool center = s_trans_kind != MENU_TRANS_ICON &&
+                  (s_trans_motion == MENU_TRANS_EXIT_GATHER ||
                    s_trans_motion == MENU_TRANS_ENTER_BURST);
     uint32_t p = entering ? 100U - progress : progress;
     uint32_t icon_p = p;
     uint8_t i;
 
     /* ICON top captions arrive ahead of bottom icons by ~20ms. */
-    if (entering && s_trans_motion == MENU_TRANS_ENTER_OUTSIDE) {
+    if (entering && s_trans_kind == MENU_TRANS_ICON) {
         uint32_t lower = progress <= MENU_TRANS_ICON_DELAY ? 0U :
               ((uint32_t)(progress - MENU_TRANS_ICON_DELAY) * 100U) /
               (100U - MENU_TRANS_ICON_DELAY);
