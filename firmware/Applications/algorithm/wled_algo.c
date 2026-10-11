@@ -4,7 +4,7 @@
  * Layering:
  *   UI -> request only
  *   wled_algo -> state / policy, reads SW6306 mirror only
- *   load_task -> executes PWM writes and SW6306 C2 insert/remove events
+ *   load_task -> executes PWM writes and SW6306 A1 insert/remove events
  *   drivers -> hardware access only
  */
 #include "wled_algo.h"
