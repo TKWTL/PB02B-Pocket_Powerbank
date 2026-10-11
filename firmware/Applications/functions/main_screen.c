@@ -403,15 +403,16 @@ static void main_refresh(void)
 
     /* BUS 栏兼作"特殊模式"指示灯：小电流=粉、慢充=绿、正常=浅灰白。
      * 功率与电压共用同一个颜色，便于一眼看出"这一栏当前处于什么模式"。
-     * dim_rgb 是前导十位零用的暗色 = 对应主色的【一半亮度】：
-     * 主色逐通道 /2（保持色相）再量化到 RGB565，得到
-     *   小电流 0xF880C8 -> 0x784060    慢充 0x40DC80 -> 0x206C40
-     *   常态   0xF0F0F0 -> 0x787878
-     * Rec.601 加权亮度比 dim/主色 = 49% / 49% / 50%，三档层次一致。 */
+     * dim_rgb 是前导十位零用的暗色 = 对应主色的【2/3 亮度】：
+     * 主色逐通道 x2/3（保持色相）再量化到 RGB565，得到
+     *   小电流 0xF880C8 -> 0xA05480    慢充 0x40DC80 -> 0x289050
+     *   常态   0xF0F0F0 -> 0xA0A0A0
+     * Rec.601 加权亮度比 dim/主色 = 65% / 65% / 67%，三档层次一致。
+     * 历史调参：x2（过亮）→ 旧值 +25%（层次不稳）→ 1/2（过暗）→ 当前 2/3。 */
     bus_rgb = (mode == SW6306_SPECIAL_LOW_CURRENT) ? 0xF880C8U :
               (mode == SW6306_SPECIAL_SLOW_CHARGE) ? 0x40DC80U : 0xF0F0F0U;
-    dim_rgb = (mode == SW6306_SPECIAL_LOW_CURRENT) ? 0x784060U :
-              (mode == SW6306_SPECIAL_SLOW_CHARGE) ? 0x206C40U : 0x787878U;
+    dim_rgb = (mode == SW6306_SPECIAL_LOW_CURRENT) ? 0xA05480U :
+              (mode == SW6306_SPECIAL_SLOW_CHARGE) ? 0x289050U : 0xA0A0A0U;
 
     if (SW6306_ReadIBUS() < 5U) bus_uw = 0U;
     /* uW → 0.01W：+5000 再 /10000 即四舍五入 */
@@ -543,9 +544,11 @@ static void main_screen_create(void)
     s_eta       = make_label(118, MAIN_ROW_MID, 40, LV_TEXT_ALIGN_RIGHT);
     s_clock     = make_label(118, MAIN_ROW_BOT, 40, LV_TEXT_ALIGN_RIGHT);
     /* 配色分层：温度/时钟（主信息）最亮，ETA 次之带蓝调，
-     * BAT 功率/电压压暗一档——让时间与温度成为视觉重点。 */
-    lv_obj_set_style_text_color(s_bat_power, lv_color_hex(0xB8C4D0), 0);
-    lv_obj_set_style_text_color(s_bat_volt,  lv_color_hex(0xB8C4D0), 0);
+     * BAT 功率/电压压暗一档——让时间与温度成为视觉重点。
+     * BAT 标签在 0xB8C4D0 基础上再降 10% 亮度（Rec.601 194 -> 175），
+     * 取值 0xA8B0C0 是 RGB565 色域内最接近的一档。 */
+    lv_obj_set_style_text_color(s_bat_power, lv_color_hex(0xA8B0C0), 0);
+    lv_obj_set_style_text_color(s_bat_volt,  lv_color_hex(0xA8B0C0), 0);
     lv_obj_set_style_text_color(s_temp,      lv_color_hex(0xD0DCE0), 0);
     lv_obj_set_style_text_color(s_clock,     lv_color_hex(0xD0DCE0), 0);
     lv_obj_set_style_text_color(s_eta,       lv_color_hex(0x88B4D8), 0);
