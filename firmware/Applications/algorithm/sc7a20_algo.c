@@ -26,6 +26,8 @@ volatile uint32_t sc7a20_wake_arm_fail_count;
 volatile uint32_t sc7a20_wake_arm_ok_count;
 volatile uint8_t sc7a20_wake_last_src1, sc7a20_wake_last_src2;
 volatile uint8_t sc7a20_wake_arm_ctrl2, sc7a20_wake_arm_ctrl3;
+volatile uint8_t sc7a20_wake_arm_ctrl1, sc7a20_wake_arm_int1_cfg;
+volatile uint8_t sc7a20_wake_arm_pb8; /* physical shared IRQ level: 1=idle */
 volatile uint32_t sc7a20_wake_resume_count;
 
 void SC7A20_AlgoInit(void)
@@ -92,8 +94,10 @@ void SC7A20_AlgoLoadSample(void)
  * Shared PB8/EXTI8 is low-active; ISR always wakes without classifying source.
  * Motion: AOI1 (0x30) XYZ OR + high-pass (CTRL2.HPIS1), INT1 CTRL3[6].
  * Pickup: AOI2 (0x34) 6D Movement XYZ axes, INT1 CTRL3[5].
- * Both engines share 25Hz / 2g LP ODR. Motion uses HPM=00 and explicitly
- * reads REFERENCE on wake, as suggested in ST DT0098 for repeated events.
+ * Both engines share 25Hz / 2g LP ODR. Motion HPM=11 automatically
+ * resets HPF on interrupt (LIS2DH12-compatible experimental baseline).
+ * Reading REFERENCE on resume in HPM=00 regressed to zero wake events;
+ * restore prior HPM behavior before isolating the recurring-wake fault.
  * PB8 interrupt remains non-latched to coexist with SW6306.
  */
 static void sc7a20_wake_routes_off(void)
@@ -149,11 +153,11 @@ void SC7A20_AlgoPmSuspend(void *ctx)
             SC7A20_INT_CFG_XHIE | SC7A20_INT_CFG_XLIE |
             SC7A20_INT_CFG_YHIE | SC7A20_INT_CFG_YLIE |
             SC7A20_INT_CFG_ZHIE | SC7A20_INT_CFG_ZLIE);
-        /* ST DT0098: HP filter mode 00, reset by reading REFERENCE.
-         * Unlike HPM=11, the reset moment is controlled in PM resume. */
+        /* Restore HPM=11 autoreset on interrupt. Prior HPM=00 plus a
+         * resume REFERENCE read prevented even the first Motion wake. */
         SC7A20_ByteModify(SC7A20_CTRG_CTRL2,
             SC7A20_CTRL2_HPM_MSK | SC7A20_CTRL2_HPIS1,
-            SC7A20_CTRL2_HPIS1);
+            SC7A20_HPM_AUTORST | SC7A20_CTRL2_HPIS1);
         routes |= SC7A20_CTRL3_I1_AOI1;
     }
 
@@ -168,7 +172,7 @@ void SC7A20_AlgoPmSuspend(void *ctx)
         routes |= SC7A20_CTRL3_I1_AOI2;
     }
 
-    /* Motion: 25Hz, 6LSB (96mg), duration 0, HPF normal-reset.
+    /* Motion: 25Hz, 6LSB (96mg), duration 0, HPF autoreset.
      * Pickup threshold and 6D mode are unchanged. */
     SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
         SC7A20_ODR_25HZ | SC7A20_CTRL1_LPEN | SC7A20_DEFAULT_AXIS_EN);
@@ -205,8 +209,11 @@ void SC7A20_AlgoPmSuspend(void *ctx)
     }
     /* Verify actual silicon state, not merely software policy. Sample
      * AFTER the PB8 fail-closed guard to catch a disarmed second sleep. */
+    SC7A20_ByteRead(SC7A20_CTRG_CTRL1, &sc7a20_wake_arm_ctrl1);
     SC7A20_ByteRead(SC7A20_CTRG_CTRL2, &sc7a20_wake_arm_ctrl2);
     SC7A20_ByteRead(SC7A20_CTRG_CTRL3, &sc7a20_wake_arm_ctrl3);
+    SC7A20_ByteRead(SC7A20_CTRG_INT1_CFG, &sc7a20_wake_arm_int1_cfg);
+    sc7a20_wake_arm_pb8 = gpio_input_data_bit_read(GPIOB, GPIO_PINS_8) == SET;
 }
 
 void SC7A20_AlgoPmResume(void *ctx)
@@ -220,11 +227,8 @@ void SC7A20_AlgoPmResume(void *ctx)
         sc7a20_wake_last_src1 = src;
         SC7A20_ByteRead(SC7A20_STRG_INT2_SOURCE, &src);
         sc7a20_wake_last_src2 = src;
-        /* ST DT0098: read REFERENCE when a motion wake is handled, to
-         * reset the HPF for subsequent close-in-time events. This works
-         * independently from LIR_INT1, which remains disabled. */
-        if (SC7A20_AlgoConfig.motion_wake)
-            SC7A20_ByteRead(SC7A20_CTRG_REFERENCE, &src);
+        /* HPM=11 resets the HPF on interrupt; do not read REFERENCE
+         * during resume (the last trial regressed to no Motion wake). */
         ++sc7a20_wake_resume_count;
         sc7a20_wake_routes_off(); /* Release shared PB8 before returning. */
         /* Power-down mode removed XYZ enable bits; restore all of them. */
