@@ -164,12 +164,12 @@ static void update_ports(void)
 
     if (a && c) {
         /* 双口同时活动：不显示协议（单组 qcstat 无法分口） */
-        mini_snprintf(buf, sizeof(buf), "#F85050 A#+#F0D040 C#:5V");
+        mini_snprintf(buf, sizeof(buf), "#F85050 A#+#F8E040 C#:5V");
     } else if (a) {
         mini_snprintf(buf, sizeof(buf), "#F85050 A#:%s",
                       short_proto(SW6306_ReadProtocol()));
     } else if (c) {
-        mini_snprintf(buf, sizeof(buf), "#F0D040 C#:%s",
+        mini_snprintf(buf, sizeof(buf), "#F8E040 C#:%s",
                       short_proto(SW6306_ReadProtocol()));
     } else {
         mini_snprintf(buf, sizeof(buf), "OFF");
@@ -403,10 +403,16 @@ static void main_refresh(void)
 
     /* BUS 栏兼作"特殊模式"指示灯：小电流=粉、慢充=绿、正常=浅灰白。
      * 功率与电压共用同一个颜色，便于一眼看出"这一栏当前处于什么模式"。 */
+    /* dim 色 = 同色系的"低饱和"版，用于前导十位零。
+     * 本轮把偏暗的两档亮度翻倍，提高可读性（原值过暗，几乎看不出是数字）：
+     *   小电流 0x783860 → 0xF070C0   慢充 0x286040 → 0x50C080
+     * 常态（白系）**不能**翻倍：0xB8C4D0 ×2 = 0xFFFFFF 会比主色 0xF0F0F0 更亮，
+     * 前导零反而比数字更抢眼，语义颠倒。故取原值与翻倍值的中点 0xD8DCE0，
+     * 保持"略暗于主色"。三档均须满足：dim 亮度 < main 亮度。 */
     bus_rgb = (mode == SW6306_SPECIAL_LOW_CURRENT) ? 0xF880C8U :
               (mode == SW6306_SPECIAL_SLOW_CHARGE) ? 0x40DC80U : 0xF0F0F0U;
-    dim_rgb = (mode == SW6306_SPECIAL_LOW_CURRENT) ? 0x783860U :
-              (mode == SW6306_SPECIAL_SLOW_CHARGE) ? 0x286040U : 0x687078U;
+    dim_rgb = (mode == SW6306_SPECIAL_LOW_CURRENT) ? 0xF070C0U :
+              (mode == SW6306_SPECIAL_SLOW_CHARGE) ? 0x50C080U : 0xD8DCE0U;
 
     if (SW6306_ReadIBUS() < 5U) bus_uw = 0U;
     /* uW → 0.01W：+5000 再 /10000 即四舍五入 */
@@ -508,7 +514,7 @@ static void main_screen_create(void)
     lv_obj_set_pos(frame, 3, 0);
     lv_obj_set_size(frame, 51, MAIN_LBL_H);
     lv_obj_set_style_radius(frame, 3, 0);
-    lv_obj_set_style_bg_color(frame, lv_color_hex(0x70DCF8), 0);
+    lv_obj_set_style_bg_color(frame, lv_color_hex(0x70DCE8), 0);
     lv_obj_set_style_bg_opa(frame, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_all(frame, 0, 0);
     lv_obj_remove_flag(frame, LV_OBJ_FLAG_SCROLLABLE);
