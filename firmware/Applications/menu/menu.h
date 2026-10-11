@@ -25,6 +25,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "menu_anim.h"  /* Functions share the menu animation PID presets. */
 #include "lvgl.h"   /* 仅使用 LV_KEY_PREV/NEXT/ENTER 常量 */
 
 #ifdef __cplusplus
