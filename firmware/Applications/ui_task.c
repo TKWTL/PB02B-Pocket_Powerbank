@@ -106,7 +106,8 @@ static void menu_redraw_handler(void)
     if (s_shown_valid && (s_shown_menu != next_menu ||
         (next_menu && s_shown_page != next_page) ||
         (!next_menu && s_shown_app != next_app))) {
-        menu_ui_transition_exit(s_shown_kind, lv_screen_active(), menu_redraw_commit);
+        menu_ui_transition_exit(s_shown_kind, current_scene_kind(),
+                                lv_screen_active(), menu_redraw_commit);
         return;
     }
     if (!s_shown_valid) {

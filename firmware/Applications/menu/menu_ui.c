@@ -77,15 +77,24 @@ static lv_timer_t *s_anim_timer;
  */
 #define MENU_TRANS_MAX_ITEMS       24U
 #define MENU_TRANS_EXIT_GAIN       1.25f  /* EXIT ~20-30% faster than ENTER */
-#define MENU_TRANS_ICON_DELAY      45U    /* top labels ~20ms ahead of icons */
-#define MENU_TRANS_MAIN_DELAY_TICK 4U     /* battery enters 30-40ms later */
+#define MENU_TRANS_ICON_DELAY      45U    /* top captions lead lower icons */
+#define MENU_TRANS_CENTER_REVEAL   78U    /* selected icon / TEXT label pop in */
+#define MENU_TRANS_MAIN_DELAY_TICK 4U     /* battery enters ~40ms later */
 typedef enum {
     MENU_TRANS_IDLE = 0, MENU_TRANS_EXIT, MENU_TRANS_ENTER
 } menu_trans_stage_t;
+/* Four exit/entry actions; match motion directions across scene switches. */
+typedef enum {
+    MENU_TRANS_EXIT_GATHER,
+    MENU_TRANS_EXIT_SCATTER,
+    MENU_TRANS_ENTER_OUTSIDE,
+    MENU_TRANS_ENTER_BURST
+} menu_trans_motion_t;
 typedef enum {
     MENU_TRANS_GROUP_RADIAL = 0,
     MENU_TRANS_GROUP_ICON_TOP,
     MENU_TRANS_GROUP_ICON_BOTTOM,
+    MENU_TRANS_GROUP_ICON_CENTER,
     MENU_TRANS_GROUP_MAIN_CENTER,
     MENU_TRANS_GROUP_WORD
 } menu_trans_group_t;
@@ -98,6 +107,7 @@ static menu_trans_item_t s_trans_items[MENU_TRANS_MAX_ITEMS];
 static uint8_t s_trans_count, s_trans_ticks;
 static menu_trans_kind_t s_trans_kind;
 static menu_trans_stage_t s_trans_stage;
+static menu_trans_motion_t s_trans_motion;
 static menu_anim_pid_t s_trans_pid;
 static void (*s_trans_commit)(void);
 
@@ -1059,16 +1069,17 @@ static void icon_anim_tick(void)
     icon_apply_positions(st, n);
 }
 
-/* ---------- Cross-page transition: shared one-PID scheduler ----------
- * MENU page objects remain alive through EXIT even though menu.c already
- * points to the destination. Commit callback switches/destroys screens only
- * after EXIT. ENTER begins in the same LVGL timer callback after redraw.
- *
- * TEXT: center label direct visibility, four corners radiate from center.
- * ICON: top hint/clock move from above, bottom icons rise from below.
- * MAIN: 8 perimeter fields + port frame radiate, battery stack delayed 40ms.
- * WORD: a 3-line strip enters/exits vertically, preserving scroll PID.
+/* ---------- Destination-matched four-way transitions ----------
+ * Target TEXT/MAIN: gather at center -> burst outward.
+ * Target ICON/WORD: scatter offscreen -> fly in from offscreen.
+ * Center label/image hides on EXIT and pops in after most motion completes.
+ * Reuses the single PID and menu 10ms timer, no extra LVGL animation.
  */
+static bool trans_enter_at_center(menu_trans_kind_t kind)
+{
+    return kind == MENU_TRANS_TEXT || kind == MENU_TRANS_MAIN;
+}
+
 static void trans_add(lv_obj_t *obj, uint8_t group)
 {
     menu_trans_item_t *it;
@@ -1112,7 +1123,8 @@ static void trans_capture(menu_trans_kind_t kind, lv_obj_t *screen)
         trans_add(s_icon_hint, MENU_TRANS_GROUP_ICON_TOP);
         trans_add(s_icon_clock, MENU_TRANS_GROUP_ICON_TOP);
         for (i = 0U; i < s_icon_count; i++)
-            trans_add(s_icons[i].img, MENU_TRANS_GROUP_ICON_BOTTOM);
+            trans_add(s_icons[i].img, (i == s_last_index) ?
+                      MENU_TRANS_GROUP_ICON_CENTER : MENU_TRANS_GROUP_ICON_BOTTOM);
     } else if (kind == MENU_TRANS_WORD) {
         s_word_scroll.active = false;
         for (i = 0U; i < MENU_WORD_VISIBLE + 1U; i++)
@@ -1129,50 +1141,85 @@ static void trans_capture(menu_trans_kind_t kind, lv_obj_t *screen)
     }
 }
 
+/* Compute an off-screen endpoint for each peripheral field.
+ * MAIN and TEXT use eight compass directions, ICON retains top/bottom
+ * motion, and WORD scrolls off as one vertical strip. */
+static void trans_outside(const menu_trans_item_t *it, int32_t *x, int32_t *y)
+{
+    int32_t w = lv_obj_get_width(it->obj), h = lv_obj_get_height(it->obj);
+    int32_t cx = it->x + w / 2, cy = it->y + h / 2;
+    *x = it->x;
+    *y = it->y;
+    if (it->group == MENU_TRANS_GROUP_ICON_TOP) {
+        *y = -h - 1;
+    } else if (it->group == MENU_TRANS_GROUP_ICON_BOTTOM ||
+               it->group == MENU_TRANS_GROUP_WORD) {
+        *y = it->y < 0 ? MENU_SCR_H + 1 : it->y + MENU_SCR_H;
+    } else {
+        if (cx < MENU_SCR_W / 2 - 12) *x = -w - 1;
+        else if (cx > MENU_SCR_W / 2 + 12) *x = MENU_SCR_W + 1;
+        if (cy < MENU_SCR_H / 2 - 5) *y = -h - 1;
+        else if (cy > MENU_SCR_H / 2 + 5) *y = MENU_SCR_H + 1;
+        if (*x == it->x && *y == it->y)
+            *y = cy < MENU_SCR_H / 2 ? -h - 1 : MENU_SCR_H + 1;
+    }
+}
+
 static void trans_apply(uint8_t progress)
 {
-    uint8_t enter = s_trans_stage == MENU_TRANS_ENTER;
-    uint8_t bottom_progress = progress;
+    bool entering = s_trans_stage == MENU_TRANS_ENTER;
+    bool center = (s_trans_motion == MENU_TRANS_EXIT_GATHER ||
+                   s_trans_motion == MENU_TRANS_ENTER_BURST);
+    uint32_t p = entering ? 100U - progress : progress;
+    uint32_t icon_p = p;
     uint8_t i;
-    /* Two 10ms ticks of lead time: top ICON labels move before images. */
-    if (enter) {
-        bottom_progress = (progress <= MENU_TRANS_ICON_DELAY) ? 0U :
-            (uint8_t)(((uint32_t)(progress - MENU_TRANS_ICON_DELAY) * 100U) /
-                       (100U - MENU_TRANS_ICON_DELAY));
+
+    /* ICON top captions arrive ahead of bottom icons by ~20ms. */
+    if (entering && s_trans_motion == MENU_TRANS_ENTER_OUTSIDE) {
+        uint32_t lower = progress <= MENU_TRANS_ICON_DELAY ? 0U :
+              ((uint32_t)(progress - MENU_TRANS_ICON_DELAY) * 100U) /
+              (100U - MENU_TRANS_ICON_DELAY);
+        icon_p = 100U - lower;
     }
+
     for (i = 0U; i < s_trans_count; i++) {
         menu_trans_item_t *it = &s_trans_items[i];
-        int32_t x = it->x, y = it->y;
-        uint32_t p = progress;
-        if (it->group == MENU_TRANS_GROUP_MAIN_CENTER) {
-            /* Central battery and its percentage don't fly or stretch.
-             * Enter: reveal after 4 frames; exit: disappear immediately. */
-            if (!enter || s_trans_ticks < MENU_TRANS_MAIN_DELAY_TICK)
-                lv_obj_add_flag(it->obj, LV_OBJ_FLAG_HIDDEN);
-            else
-                lv_obj_remove_flag(it->obj, LV_OBJ_FLAG_HIDDEN);
-        } else if (it->group == MENU_TRANS_GROUP_ICON_TOP ||
-                   it->group == MENU_TRANS_GROUP_ICON_BOTTOM ||
-                   it->group == MENU_TRANS_GROUP_WORD) {
-            if (it->group == MENU_TRANS_GROUP_ICON_BOTTOM) p = bottom_progress;
-            if (enter) p = 100U - p;
-            y += ((it->group == MENU_TRANS_GROUP_ICON_TOP) ? -40 : 40) *
-                 (int32_t)p / 100;
-        } else {
-            /* Radial movement is linear in the common PID progress:
-             * EXIT converges toward (80,20), ENTER radiates from there. */
-            if (enter) p = 100U - p;
-            x += ((MENU_SCR_W / 2 - (it->x + lv_obj_get_width(it->obj) / 2)) *
-                  (int32_t)p) / 100;
-            y += ((MENU_SCR_H / 2 - (it->y + lv_obj_get_height(it->obj) / 2)) *
-                  (int32_t)p) / 100;
+        int32_t x = it->x, y = it->y, end_x, end_y;
+        uint32_t q = p;
+
+        if (it->group == MENU_TRANS_GROUP_MAIN_CENTER ||
+            it->group == MENU_TRANS_GROUP_ICON_CENTER) {
+            /* Center battery/selected icon vanishes before peripheral EXIT,
+             * then reappears after outer objects have mostly arrived. */
+            bool reveal = entering &&
+                (it->group == MENU_TRANS_GROUP_MAIN_CENTER ?
+                 s_trans_ticks >= MENU_TRANS_MAIN_DELAY_TICK :
+                 progress >= MENU_TRANS_CENTER_REVEAL);
+            if (reveal) lv_obj_remove_flag(it->obj, LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_add_flag(it->obj, LV_OBJ_FLAG_HIDDEN);
+            continue;
         }
+
+        if (center) {
+            end_x = MENU_SCR_W / 2 - lv_obj_get_width(it->obj) / 2;
+            end_y = MENU_SCR_H / 2 - lv_obj_get_height(it->obj) / 2;
+        } else {
+            trans_outside(it, &end_x, &end_y);
+            if (entering && it->group == MENU_TRANS_GROUP_ICON_BOTTOM)
+                q = icon_p;
+        }
+        x += (end_x - x) * (int32_t)q / 100;
+        y += (end_y - y) * (int32_t)q / 100;
         lv_obj_set_pos(it->obj, x, y);
     }
+
     if (s_trans_kind == MENU_TRANS_TEXT) {
-        /* TEXT center label doesn't move with the corners. */
-        if (!enter) lv_obj_add_flag(s_item, LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_remove_flag(s_item, LV_OBJ_FLAG_HIDDEN);
+        /* TEXT center label is stationary; reveal it late after either
+         * center-burst or offscreen-incoming perimeter motion. */
+        if (entering && progress >= MENU_TRANS_CENTER_REVEAL)
+            lv_obj_remove_flag(s_item, LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_add_flag(s_item, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -1233,12 +1280,14 @@ void menu_ui_transition_enter(menu_trans_kind_t kind, lv_obj_t *screen)
     if (kind == MENU_TRANS_OTHER) return;
     trans_capture(kind, screen);
     menu_anim_init(&s_trans_pid, 0.0f, 100.0f);
+    s_trans_motion = trans_enter_at_center(kind) ?
+                     MENU_TRANS_ENTER_BURST : MENU_TRANS_ENTER_OUTSIDE;
     s_trans_stage = MENU_TRANS_ENTER;
-    trans_apply(0U);   /* Place new scene offscreen before next LCD flush */
+    trans_apply(0U);   /* Position scene before the next LCD flush */
 }
 
-void menu_ui_transition_exit(menu_trans_kind_t kind, lv_obj_t *screen,
-                             void (*commit)(void))
+void menu_ui_transition_exit(menu_trans_kind_t kind, menu_trans_kind_t next_kind,
+                             lv_obj_t *screen, void (*commit)(void))
 {
     if (kind == MENU_TRANS_OTHER) {
         if (commit) commit();
@@ -1248,6 +1297,8 @@ void menu_ui_transition_exit(menu_trans_kind_t kind, lv_obj_t *screen,
     menu_anim_init(&s_trans_pid, 0.0f, 100.0f);
     s_trans_pid.kp *= MENU_TRANS_EXIT_GAIN;
     s_trans_pid.kd *= MENU_TRANS_EXIT_GAIN;
+    s_trans_motion = trans_enter_at_center(next_kind) ?
+                     MENU_TRANS_EXIT_GATHER : MENU_TRANS_EXIT_SCATTER;
     s_trans_commit = commit;
     s_trans_stage = MENU_TRANS_EXIT;
     trans_apply(0U);

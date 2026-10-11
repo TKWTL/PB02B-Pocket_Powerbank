@@ -29,8 +29,8 @@ typedef enum {
     MENU_TRANS_WORD,
     MENU_TRANS_MAIN
 } menu_trans_kind_t;
-void menu_ui_transition_exit(menu_trans_kind_t kind, lv_obj_t *screen,
-                             void (*commit)(void));
+void menu_ui_transition_exit(menu_trans_kind_t kind, menu_trans_kind_t next_kind,
+                             lv_obj_t *screen, void (*commit)(void));
 void menu_ui_transition_enter(menu_trans_kind_t kind, lv_obj_t *screen);
 void menu_ui_transition_reset_page(void);
 bool menu_ui_transition_busy(void);
