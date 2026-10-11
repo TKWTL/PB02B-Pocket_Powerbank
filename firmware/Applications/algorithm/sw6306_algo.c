@@ -373,7 +373,9 @@ sw6306_special_mode_t SW6306_AlgoGetSpecialMode(void)
  *   - 已超时（下一轮 100ms 服务就会退出）→ 0
  * 否则返回 timeout - elapsed。
  * s_last_high_load_tick 会被 100ms 服务更新，这里与它做无符号相减，
- * 天然兼容 tick 回绕。 */
+ * 天然兼容 tick 回绕。
+ * 注意 tick→ms 用 portTICK_PERIOD_MS（与本工程其他处一致，如
+ * pm_sleep_timer.c）——pdTICKS_TO_MS 在本 SDK 的 FreeRTOS 版本里不存在。 */
 uint32_t SW6306_AlgoGetLowCurrentRemainingMs(void)
 {
     uint32_t now, elapsed, timeout_ticks;
@@ -386,7 +388,7 @@ uint32_t SW6306_AlgoGetLowCurrentRemainingMs(void)
     elapsed = (uint32_t)(now - s_last_high_load_tick);
 
     if (elapsed >= timeout_ticks) return 0U;
-    return pdTICKS_TO_MS(timeout_ticks - elapsed);
+    return (uint32_t)((timeout_ticks - elapsed) * portTICK_PERIOD_MS);
 }
 /*************************** 小电流与慢充策略结束 *******************************/
 
