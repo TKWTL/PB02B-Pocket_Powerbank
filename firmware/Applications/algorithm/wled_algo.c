@@ -207,7 +207,11 @@ static void wled_take_ui_requests(void)
     taskEXIT_CRITICAL();
 
     if (sos_req != 0U) {
-        /* Every SOS start first forces an OFF PWM tick. */
+        /* SOS shares WLED's fake-A1 state machine. WLED -> SOS makes an
+         * OFF PWM edge, but returns s_level to ON in this same 10ms tick:
+         * the fake A1 stays owned with no remove/reinsert transient.
+         * SOS -> OFF leaves s_level=0, so the existing 200ms post-off
+         * cleanup releases A1 once PWM reaches zero. */
         wled_set_brightness(0U);
         s_sos_active = (sos_req == 1U) ? 1U : 0U;
         s_sos_elapsed_ms = 0U;
@@ -542,5 +546,16 @@ uint8_t WLED_AlgoIsProtectedOff(void)
 uint8_t WLED_AlgoOwnsFakeA1(void)
 {
     return s_fake_a1_owned;
+}
+
+/* Read-only interlock for SW6306 idle-port cleanup (called in another task).
+ * Include the fake-port handover/confirmation period: even after PWM is off,
+ * that A1 still belongs to WLED until its own post-off handler removes it. */
+uint8_t WLED_AlgoMeterBusy(void)
+{
+    return (s_level != 0U || s_sos_active != 0U ||
+            s_pwm != 0U || s_fake_a1_owned != 0U ||
+            s_insert_pending != 0U || s_remove_pending != 0U ||
+            s_sos_request == 1U || s_toggle_request != 0U) ? 1U : 0U;
 }
 /************************* WLED 算法调度与状态接口结束 **************************/
