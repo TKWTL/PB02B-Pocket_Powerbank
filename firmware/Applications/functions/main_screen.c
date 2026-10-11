@@ -75,11 +75,10 @@
  * 空载假插入不会有负载电流，故以电流区分真假插入，见 update_ports()。 */
 #define MAIN_A1_LOAD_MA         20U
 
-/* ETA 无效哨兵：显示成 "-----"（见 update_clock_and_temp）。
- * 选 0xFFFF 是因为 ETA 计算被限制在 6000 分钟以内，不会与该值冲突。 */
+/* ETA 无效哨兵：显示 "--H--"。有效秒数限制为 <360000（最多99H59）。 */
 #define MAIN_ETA_INVALID        0xFFFFFFFFUL
 
-/* 每个标签的固定尺寸：宽由调用点给出（决定可容纳字符数），高恒为 14 = 一个行盒。
+/* 每个信息标签的固定尺寸：宽由调用点给出，高恒为 14 = 一个行盒。
  * 高度必须 >= 字体 line_height，否则字形会被纵向裁切。 */
 #define MAIN_LBL_H              14
 
@@ -153,7 +152,7 @@ static lv_obj_t *make_label(int32_t x, int32_t y, int32_t w, lv_text_align_t ali
  * C 口则是真实口，充电中或 C1 放电即视为活动。
  *
  * 字符串里的 #RRGGBB ... # 是 LVGL recolor 色码：A 红、C 黄，
- * 由 lv_label_set_recolor(s_port, true) 启用（在 create 里，只对 s_port 生效）。
+ * 由 lv_label_set_recolor(s_port, true) 启用；BUS 两个数值标签也各自启用变色。
  * 色码本身不占显示宽度，但【要算进 buf 容量】。
  * 文案宽度上限 6 字符（48px），超出会被 CLIP 截断。 */
 static void update_ports(void)
@@ -313,7 +312,7 @@ static void update_battery(void)
  * 避免 C 的整除向零截断在负数上产生偏差。
  * 【时钟】用 RTC 秒的奇偶交替显示 "HH:MM" 与 "HH MM" 作为秒闪。
  * 月/时/分先做合法性校验，RTC 未初始化时显示 "--:--" 而不是乱码。
- * 【ETA】无效时用 5 个横线占位（同样 5 字符，宽度与 "99H59" 一致，不跳动）。 */
+ * 【ETA】无效显示 --H--；低于1小时显示 mmMss（真实秒数），否则 hhHmm。 */
 static void update_clock_and_temp(void)
 {
     static char clock_buf[8], temp_buf[12], eta_buf[8];
@@ -464,7 +463,7 @@ static void main_timer_cb(lv_timer_t *t)
 /* ---------- 对象创建（改布局主要看这里） ----------
  * 【创建顺序 = 图层顺序】后建的盖在上面，所以电量填充条(s_bar/s_tab)必须先建，
  * 电池轮廓图(s_bat_img)后建，填充才会显示在轮廓"内部"而不是遮住轮廓。
- * 百分号 s_pct 作为 s_bat_img 的子对象，自动跟随图标移动。
+ * 电量百分比由两个屏幕坐标相同的 Label 组成，由裁剪区分别呈现白/黑两色。
  *
  * 【改动清单——每一步都对应一个可见元素】
  *   1. 根对象 160x40 + 深色底
@@ -473,7 +472,7 @@ static void main_timer_cb(lv_timer_t *t)
  *   4. 方向箭头（固定 x62..69，架在轮廓框与电池之间）
  *   5. 电池栏功率/电压两行
  *   6. 状态栏温度/ETA/时钟三行 + 各栏文字颜色
- *   7. 电池图标：填充条 → 凸起 → A8 轮廓图 → 百分号子标签
+ *   7. 电池图标：填充条 → 凸起 → A8轮廓图 → 白/黑两个裁剪文本容器
  * 所有坐标都基于上面布局图的常量，尽量别再引入裸数字。 */
 /* 透明容器只负责裁剪，上层数字穿过填充边界时会半白半黑。 */
 static lv_obj_t *make_pct_clip(void)
