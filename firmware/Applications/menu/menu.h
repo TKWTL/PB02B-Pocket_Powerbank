@@ -149,7 +149,7 @@ struct menu_page_t {
     menu_page_t var = { (title), (items), \
         (uint8_t)(sizeof(items) / sizeof((items)[0])), 0, MENU_PAGE_ICON, 0, (icons), \
         NULL, 0, 0, MENU_WORD_INFO, NULL, NULL }
-/* WORD页：独立全屏3行文本窗口，不复用TEXT布局/动画。 */
+/* WORD页：独立全屏3行文本窗口；纵向滚动复用TEXT的共享PID动画参数。 */
 #define MENU_WORD_INFO_(var, lines) \
     menu_page_t var = { NULL, NULL, 0, 0, MENU_PAGE_WORD, 0, NULL, \
         (lines), (uint8_t)(sizeof(lines) / sizeof((lines)[0])), 0, MENU_WORD_INFO, NULL, NULL }
