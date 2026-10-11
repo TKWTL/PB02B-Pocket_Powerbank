@@ -228,7 +228,6 @@ void SW6306_AlgoInit(void)
     s_learn_state = SW6306_LEARN_ST_UNKNOWN;
     s_load_phase = 0U;
     s_capacity_cycle = 1U;
-    s_idle_remove_ticks = 0U;
     s_special_mode = SW6306_SPECIAL_NONE;
     s_special_toggle_req = 0U;
     s_slow_stop_count = 0U;
@@ -240,7 +239,8 @@ void SW6306_AlgoInit(void)
     taskENTER_CRITICAL();
     s_commands = SW6306_CMD_PROTOCOL |
                  SW6306_CMD_POWER |
-                 SW6306_CMD_LEARN_ENABLE;
+                 SW6306_CMD_LEARN_ENABLE |
+                 SW6306_CMD_UNUSED_REMOVE;
     taskEXIT_CRITICAL();
 }
 
@@ -386,7 +386,7 @@ void SW6306_AlgoService100ms(void)
         sw6306_algo_set_command(SW6306_CMD_POWER | SW6306_CMD_LOW_CURRENT);
     }
     sw6306_idle_port_tick();
-
+}
 
 sw6306_special_mode_t SW6306_AlgoGetSpecialMode(void)
 {
