@@ -1079,6 +1079,13 @@ static void trans_add(lv_obj_t *obj, uint8_t group)
     it->x = (int16_t)lv_obj_get_x(obj);
     it->y = (int16_t)lv_obj_get_y(obj);
     it->group = group;
+    /* lv_obj_get_x/y returns the actual position, but set_pos() interprets
+     * x/y as ALIGN offsets. The two top-right aligned labels must become
+     * absolute-positioned before animation, or they jump off the display. */
+    if (obj == s_indicator || obj == s_icon_clock) {
+        lv_obj_set_align(obj, LV_ALIGN_TOP_LEFT);
+        lv_obj_set_pos(obj, it->x, it->y);
+    }
 }
 
 static void trans_capture(menu_trans_kind_t kind, lv_obj_t *screen)
@@ -1182,8 +1189,13 @@ static void trans_tick(void)
      * Next scene may reuse these objects, so never leave them offset. */
     trans_apply(100U);
     for (i = 0U; i < s_trans_count; i++) {
-        lv_obj_set_pos(s_trans_items[i].obj, s_trans_items[i].x,
-                       s_trans_items[i].y);
+        lv_obj_t *obj = s_trans_items[i].obj;
+        if (obj == s_indicator)
+            lv_obj_align(obj, LV_ALIGN_TOP_RIGHT, -3, 0);
+        else if (obj == s_icon_clock)
+            lv_obj_align(obj, LV_ALIGN_TOP_RIGHT, -3, ICON_TOP_Y);
+        else
+            lv_obj_set_pos(obj, s_trans_items[i].x, s_trans_items[i].y);
     }
     if (s_trans_stage == MENU_TRANS_EXIT) {
         void (*commit)(void) = s_trans_commit;
@@ -1244,9 +1256,16 @@ void menu_ui_transition_exit(menu_trans_kind_t kind, lv_obj_t *screen,
 /* 由 10ms 定时器驱动：PID 步进 + 应用位置 */
 static void menu_ui_anim_tick(lv_timer_t *t)
 {
+    bool full_frame = s_sliding || s_prev_out_x.active || s_next_out_x.active ||
+                      s_prev_in_x.active || s_next_in_x.active ||
+                      (s_word_page && s_word_scroll.active);
     (void)t;
     if (menu_ui_transition_busy()) {
         trans_tick();
+        /* The GC9D01 uses partial 160x16 flushing. Redraw all 160x40 pixels
+         * of every transition frame instead of old/new Label rectangles:
+         * fractional edge coverage otherwise leaves conspicuous trails. */
+        lv_obj_invalidate(lv_screen_active());
         return;
     }
     /* 文本页整体斜向滚动：中间项到角落 + 新项滑入中间。
@@ -1294,8 +1313,15 @@ static void menu_ui_anim_tick(lv_timer_t *t)
     }
     /* 图标页滚动/缩放/透明度动画 */
     if (s_icon_page) {
+        if (s_head_pid.active || s_icon_anim_was_active) full_frame = true;
+        for (uint8_t i = 0U; i < s_icon_count; i++) {
+            if (s_icons[i].pid_opa.active) full_frame = true;
+        }
         icon_anim_tick();
     }
+    /* Invalidate the root, not each moving label: each animation frame
+     * repaints the whole display while idle screens remain power-efficient. */
+    if (full_frame) lv_obj_invalidate(lv_screen_active());
 }
 
 /* ---------- 创建 / 重绘 ---------- */
