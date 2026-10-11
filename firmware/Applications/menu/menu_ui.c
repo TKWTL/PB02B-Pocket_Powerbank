@@ -188,7 +188,10 @@ static void fmt_item_text(const menu_item_t *it, bool editing, bool selected, ch
  *   - 静止中心 label：14 个英文字符宽，超长时 SCROLL_CIRCULAR；
  *   - TOGGLE/ENUM/VALUE 设置项：无论是否编辑都禁止滚动，使用整屏固定宽度 CLIP；
  *   - 其它普通条目选中时才允许 SCROLL_CIRCULAR。 */
-#define MENU_TEXT_CORNER_CHARS   12U
+#define MENU_TEXT_PREV_CHARS     16U  /* top-left */
+#define MENU_TEXT_NEXT_CHARS     10U  /* bottom-right */
+#define MENU_TEXT_HEADER_CHARS   10U  /* bottom-left */
+#define MENU_TEXT_TRANSIT_CHARS  12U  /* keep existing center-slide geometry */
 #define MENU_TEXT_CENTER_CHARS   14U
 
 /* 中心项循环滚动的速度：取 LVGL 默认速度的一半（默认见 lv_label.c 的
@@ -223,12 +226,13 @@ static int32_t menu_fixed_text_w(const lv_obj_t *lbl, uint8_t chars)
     return w;
 }
 
-/* 角落/动画角色。固定 12 英文字宽，超过由 LVGL 自动显示 ...。
- * right_align 只影响短文本在固定 box 内的靠边方向。 */
+/* Corners clip in fixed widths: 16 chars at top-left, 10 at bottom-right.
+ * Both the current and entering labels share this routine. */
 static void corner_set_text(lv_obj_t *lbl, const char *text, uint8_t right_align)
 {
-    lv_label_set_long_mode(lbl, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_width(lbl, menu_fixed_text_w(lbl, MENU_TEXT_CORNER_CHARS));
+    lv_label_set_long_mode(lbl, LV_LABEL_LONG_MODE_CLIP);
+    lv_obj_set_width(lbl, menu_fixed_text_w(lbl, right_align ?
+                                           MENU_TEXT_NEXT_CHARS : MENU_TEXT_PREV_CHARS));
     lv_obj_set_style_text_align(lbl,
         right_align ? LV_TEXT_ALIGN_RIGHT : LV_TEXT_ALIGN_LEFT, 0);
     lv_label_set_text(lbl, text ? text : "");
@@ -241,7 +245,7 @@ static void transit_set_text(lv_obj_t *lbl, const char *text)
 {
     lv_point_t sz;
     const lv_font_t *font = lv_obj_get_style_text_font(lbl, LV_PART_MAIN);
-    int32_t max_w = menu_fixed_text_w(lbl, MENU_TEXT_CORNER_CHARS);
+    int32_t max_w = menu_fixed_text_w(lbl, MENU_TEXT_TRANSIT_CHARS);
     int32_t w;
 
     lv_text_get_size(&sz, text ? text : "", font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
@@ -253,6 +257,34 @@ static void transit_set_text(lv_obj_t *lbl, const char *text)
     lv_obj_set_width(lbl, w);
     lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(lbl, text ? text : "");
+}
+
+/* Bottom-left page title: fixed 10-character viewport.
+ * Only update when the text or dimensions change, otherwise menu_redraw()
+ * restarts LVGL's circular scroll every refresh. No extra timer is needed. */
+static void header_set_text(const char *title)
+{
+    const char *text = title ? title : "";
+    const unsigned char *p = (const unsigned char *)text;
+    uint8_t chars = 0U;
+    int32_t width = menu_fixed_text_w(s_header, MENU_TEXT_HEADER_CHARS);
+    int32_t available = MENU_SCR_W -
+                        menu_fixed_text_w(s_item_next, MENU_TEXT_NEXT_CHARS) - 4;
+    if (width > available) width = available;
+    if (width < 1) width = 1;
+
+    for (; *p && chars <= MENU_TEXT_HEADER_CHARS; ++p) {
+        if ((*p & 0xC0U) != 0x80U) ++chars; /* UTF-8 codepoints, not bytes */
+    }
+
+    if (strcmp(lv_label_get_text(s_header), text) == 0 &&
+        lv_obj_get_width(s_header) == width) return;
+
+    lv_label_set_long_mode(s_header, chars > MENU_TEXT_HEADER_CHARS ?
+                           LV_LABEL_LONG_MODE_SCROLL_CIRCULAR : LV_LABEL_LONG_MODE_CLIP);
+    lv_obj_set_width(s_header, width);
+    lv_obj_set_style_anim_duration(s_header, MENU_SCROLL_ANIM_TIME, 0);
+    lv_label_set_text(s_header, text);
 }
 
 /* 中心静止角色。普通状态固定 14 英文字宽并循环滚动。
@@ -290,7 +322,7 @@ static void item_recenter(lv_obj_t *label)
     lv_obj_set_x(label, (MENU_SCR_W - lv_obj_get_width(label)) / 2);
 }
 
-/* 右下角定位；固定 12 字符 box 内短文本靠右。 */
+/* Bottom-right: 10-character CLIP viewport. */
 static void pos_next_corner(lv_obj_t *lbl)
 {
     lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_RIGHT, 0);
@@ -298,7 +330,7 @@ static void pos_next_corner(lv_obj_t *lbl)
     lv_obj_set_pos(lbl, MENU_SCR_W - lv_obj_get_width(lbl) - MENU_CORNER_X, MENU_ROW_BOT_Y);
 }
 
-/* 左上角定位；固定 12 字符 box 内短文本靠左。 */
+/* Top-left: 16-character CLIP viewport. */
 static void pos_prev_corner(lv_obj_t *lbl)
 {
     lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_LEFT, 0);
@@ -1400,6 +1432,7 @@ lv_obj_t *menu_ui_create(void)
     lv_obj_set_pos(s_header, MENU_CORNER_X - 1, MENU_ROW_BOT_Y - 1);   /* 左下：菜单名称（左/上各 1px） */
     lv_obj_set_style_text_font(s_header, &lv_font_montserrat_12, 0);
     lv_obj_set_height(s_header, one_line);
+    lv_label_set_long_mode(s_header, LV_LABEL_LONG_MODE_CLIP);
     lv_label_set_text(s_header, "");
 
     s_indicator = lv_label_create(s_scr);
@@ -1616,7 +1649,7 @@ void menu_ui_redraw(void)
         s_icon_count = 0;
 
         /* 标题/页码/上一项/下一项不参与滑动，总是直接刷新 */
-        lv_label_set_text(s_header, (pg && pg->title) ? menu_tr(pg->title) : "");
+        header_set_text((pg && pg->title) ? menu_tr(pg->title) : "");
         if (st->editing) {
             lv_label_set_text(s_indicator, menu_tr("EDIT"));
         } else {

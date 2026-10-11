@@ -689,7 +689,7 @@ static char menu_status_time[16];        /* 时分秒 */
 static char menu_status_date[16];        /* 年月日 */
 static char menu_status_temp[16];        /* 温度 */
 static char menu_status_vbackup[20];     /* 备用电池电压（Vbackup） */
-static char menu_status_uid[24];         /* SD3078 UID，显示为 "ID:0x" + 16 个十六进制字符 */
+static char menu_status_uid[32];         /* SD3078 UID + four scroll pause spaces */
 
 static const menu_item_t menu_items_status_battery[] = {
     MENU_ITEM_BACK_("Return"),
@@ -832,7 +832,7 @@ void menu_status_refresh(void)
                  (int)SD3078_ReadTemp());
         mini_snprintf(menu_status_vbackup, sizeof(menu_status_vbackup), menu_tr("Vbackup: %lu.%02luV"),
                  (unsigned long)(vbackup_cv / 100U), (unsigned long)(vbackup_cv % 100U));
-        mini_snprintf(menu_status_uid, sizeof(menu_status_uid), menu_tr("ID:0x%02X%02X%02X%02X%02X%02X%02X%02X"),
+        mini_snprintf(menu_status_uid, sizeof(menu_status_uid), menu_tr("ID:0x%02X%02X%02X%02X%02X%02X%02X%02X    "),
                  SD3078_ReadID(0), SD3078_ReadID(1), SD3078_ReadID(2), SD3078_ReadID(3),
                  SD3078_ReadID(4), SD3078_ReadID(5), SD3078_ReadID(6), SD3078_ReadID(7));
     } else {
@@ -840,7 +840,7 @@ void menu_status_refresh(void)
         mini_snprintf(menu_status_date, sizeof(menu_status_date), "----");
         mini_snprintf(menu_status_temp, sizeof(menu_status_temp), "Temp: --");
         mini_snprintf(menu_status_vbackup, sizeof(menu_status_vbackup), "Vbackup: --");
-        mini_snprintf(menu_status_uid, sizeof(menu_status_uid), "ID:0x----------------");
+        mini_snprintf(menu_status_uid, sizeof(menu_status_uid), "ID:0x----------------    ");
     }
 }
 

@@ -28,10 +28,11 @@ typedef struct {
 extern sc7a20_algo_config_t SC7A20_AlgoConfig;
 
 /* 10Hz, FS=2g -> INTx_THS LSB=16mg (LIS2DH12-compatible; verify on SC7A20).
- * 6D: 54LSB=864mg (>sin(45deg)*1g) separates X/Y/Z known zones.
- * Motion: 12LSB=192mg, zero duration catches single 10Hz sample excursions.
+ * 6D: return to 32LSB=512mg: the previous 54LSB value lost all observed
+ * pickup events. Revisit after validating actual INT2_SOURCE responses.
+ * Motion: 12LSB=192mg, zero duration catches single 10Hz samples.
  * In low-power mode CTRL4.HR MUST be 0 (LPen=1/HR=1 is invalid). */
-#define SC7A20_PICKUP_THS_REG        54U
+#define SC7A20_PICKUP_THS_REG        32U
 #define SC7A20_PICKUP_DUR_REG         1U
 #define SC7A20_MOTION_THS_REG        12U
 #define SC7A20_MOTION_DUR_REG         0U
@@ -48,6 +49,8 @@ sc7a20_orientation_t SC7A20_AlgoGetOrientation(void);
 void SC7A20_AlgoPmSuspend(void *ctx);
 void SC7A20_AlgoPmResume(void *ctx);
 extern volatile uint32_t sc7a20_wake_arm_fail_count;
+extern volatile uint32_t sc7a20_wake_arm_ok_count;
+extern volatile uint8_t sc7a20_wake_last_src1, sc7a20_wake_last_src2;
 
 #ifdef __cplusplus
 }

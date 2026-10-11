@@ -23,6 +23,8 @@ static sc7a20_orientation_t s_candidate;
 static uint8_t s_candidate_count;
 /* Debugger Watch: sleep attempts rejected because IRQ remained low. */
 volatile uint32_t sc7a20_wake_arm_fail_count;
+volatile uint32_t sc7a20_wake_arm_ok_count;
+volatile uint8_t sc7a20_wake_last_src1, sc7a20_wake_last_src2;
 
 void SC7A20_AlgoInit(void)
 {
@@ -127,8 +129,9 @@ void SC7A20_AlgoPmSuspend(void *ctx)
     /* Keep low-active output (idle high) on shared PB8. Do not latch AOI. */
     SC7A20_ByteModify(SC7A20_CTRG_CTRL6,
         SC7A20_CTRL6_H_LACTIVE, SC7A20_CTRL6_H_LACTIVE);
+    /* Ensure both AOI generators are non-latched, including AOI2 routed to INT1. */
     SC7A20_ByteModify(SC7A20_CTRG_CTRL5,
-        SC7A20_CTRL5_LIR_INT1, 0U);
+        SC7A20_CTRL5_LIR_INT1 | SC7A20_CTRL5_LIR_INT2, 0U);
 
     /* LIS2DH12 forbids LPen=1 with HR=1. Normal RUN mode uses HR=1,
      * so clear it BEFORE enabling LPen for the 10Hz wake monitor.
@@ -174,15 +177,24 @@ void SC7A20_AlgoPmSuspend(void *ctx)
     SC7A20_ByteModify(SC7A20_CTRG_CTRL3,
         SC7A20_CTRL3_I1_AOI1 | SC7A20_CTRL3_I1_AOI2, routes);
 
-    /* Shared PB8 must be released before WFI. Fail closed for this sleep
-     * if INT1 stays low. This does NOT fix push-pull wiring contention. */
-    for (uint8_t i = 0U; i < 3U; ++i) {
-        vTaskDelay(pdMS_TO_TICKS(120U));
-        if (gpio_input_data_bit_read(GPIOB, GPIO_PINS_8) == RESET) {
+    /* At 10Hz a legitimate 6D pulse lasts ~100ms. The former guard shut
+     * down sensor wake after ANY one low sample, often during positioning.
+     * Only a persistently asserted line triggers the fault fallback. */
+    {
+        uint8_t low_streak = 0U;
+        for (uint8_t i = 0U; i < 3U; ++i) {
+            vTaskDelay(pdMS_TO_TICKS(120U));
+            if (gpio_input_data_bit_read(GPIOB, GPIO_PINS_8) == RESET)
+                ++low_streak;
+            else
+                low_streak = 0U;
+        }
+        if (low_streak == 3U) {
             ++sc7a20_wake_arm_fail_count;
             sc7a20_wake_routes_off();
             SC7A20_LowPowerSet();
-            break;
+        } else {
+            ++sc7a20_wake_arm_ok_count;
         }
     }
 }
@@ -191,6 +203,13 @@ void SC7A20_AlgoPmResume(void *ctx)
 {
     (void)ctx;
     if (SC7A20_IsInitialized()) {
+        /* Capture event sources before disabling routes; remains readable
+         * in Watch after the MCU wakes by either sensor or physical button. */
+        volatile uint8_t src = 0U;
+        SC7A20_ByteRead(SC7A20_STRG_INT1_SOURCE, &src);
+        sc7a20_wake_last_src1 = src;
+        SC7A20_ByteRead(SC7A20_STRG_INT2_SOURCE, &src);
+        sc7a20_wake_last_src2 = src;
         sc7a20_wake_routes_off(); /* Release shared PB8 before returning. */
         /* Power-down mode removed XYZ enable bits; restore all of them. */
         SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
