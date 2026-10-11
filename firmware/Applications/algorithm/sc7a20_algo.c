@@ -90,8 +90,9 @@ void SC7A20_AlgoLoadSample(void)
  * Shared PB8/EXTI8 is low-active; ISR always wakes without classifying source.
  * Motion: AOI1 (0x30) XYZ OR + high-pass (CTRL2.HPIS1), INT1 CTRL3[6].
  * Pickup: AOI2 (0x34) 6D Movement XYZ axes, INT1 CTRL3[5].
- * Both use 10Hz / 2g low-power mode (LPen=1, HR=0), non-latched IRQ to avoid
- * holding the shared SW6306 line low. Thresholds need board confirmation.
+ * Motion experiment: 25Hz / 2g LP mode; Pickup alone: 10Hz / 2g LP mode.
+ * Both share the same ODR if enabled together. IRQ remains non-latched
+ * to avoid holding the shared SW6306 line low.
  * No added CPU classification or sampling-rate escalation on wake.
  */
 static void sc7a20_wake_routes_off(void)
@@ -134,7 +135,7 @@ void SC7A20_AlgoPmSuspend(void *ctx)
         SC7A20_CTRL5_LIR_INT1 | SC7A20_CTRL5_LIR_INT2, 0U);
 
     /* LIS2DH12 forbids LPen=1 with HR=1. Normal RUN mode uses HR=1,
-     * so clear it BEFORE enabling LPen for the 10Hz wake monitor.
+     * so clear it BEFORE enabling LPen for the 10/25Hz wake monitor.
      * The former illegal mode can inhibit 6D/HPF event recognition. */
     SC7A20_ByteModify(SC7A20_CTRG_CTRL4, SC7A20_CTRL4_HR, 0U);
 
@@ -161,13 +162,16 @@ void SC7A20_AlgoPmSuspend(void *ctx)
         routes |= SC7A20_CTRL3_I1_AOI2;
     }
 
-    /* 10Hz low-power engine, XYZ all enabled. Reset high-pass reference
-     * and clear any stale sources BEFORE connecting generators to INT1. */
+    /* Stage 1 experiment: raise Motion ODR from 10 to 25Hz ONLY;
+     * retain its 192mg threshold, duration=0 and HPIS1-only filtering.
+     * The sensor has one shared ODR, so Pickup-only stays at 10Hz,
+     * whereas enabling both detectors selects 25Hz. */
     SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
-        SC7A20_ODR_10HZ | SC7A20_CTRL1_LPEN | SC7A20_DEFAULT_AXIS_EN);
+        (SC7A20_AlgoConfig.motion_wake ? SC7A20_ODR_25HZ : SC7A20_ODR_10HZ) |
+        SC7A20_CTRL1_LPEN | SC7A20_DEFAULT_AXIS_EN);
 
-    /* At 10Hz the high-pass and 6D engines need several samples after
-     * startup. Routing INT1 immediately produced false wake-up loops. */
+    /* Wait long enough for either ODR's HPF and 6D engines to settle;
+     * routing INT1 immediately previously caused false wake-up loops. */
     vTaskDelay(pdMS_TO_TICKS(420U));
     if (SC7A20_AlgoConfig.motion_wake)
         SC7A20_ByteRead(SC7A20_CTRG_REFERENCE, &scratch);
