@@ -94,7 +94,9 @@ static lv_obj_t *s_scr;                                     /* 主界面根对�
 static lv_obj_t *s_port, *s_bus_power, *s_bus_volt;         /* BUS 栏三行 */
 static lv_obj_t *s_bat_power, *s_bat_volt, *s_dir;          /* 电池栏：功率/电压 + 方向箭头 */
 static lv_obj_t *s_temp, *s_clock, *s_eta;                  /* 状态栏三行（ETA 在中行、时钟在低行） */
-static lv_obj_t *s_bar, *s_tab, *s_bat_img, *s_pct;         /* 电池图标：填充条/凸起/位图/百分号 */
+static lv_obj_t *s_bar, *s_tab, *s_bat_img;               /* 电池条和轮廓 */
+static lv_obj_t *s_pct_light_clip, *s_pct_dark_clip;      /* 左白右黑裁剪容器 */
+static lv_obj_t *s_pct_light, *s_pct_dark;                /* 重合的百分比文本 */
 static lv_timer_t *s_timer;                                 /* 500ms 刷新定时器 */
 /* 电量条动画：以 0.1% 为单位逐步逼近真实电量，避免数字跳变。
  * 充电时每 500ms 前进 16.7%，放电时直接对齐真实值。 */
@@ -239,62 +241,66 @@ static void update_eta(uint32_t bat_uw)
     s_eta_seconds = best;
 }
 
-/* ---------- 电池栏：图标填充条 + 百分号 ----------
- * 填充条画在"上传的 40x14 A8 轮廓图"背后，按电量裁剪宽度：
- * 轮廓内腔 x=4..38（35px 宽）是主体，x=1..3 是左侧小凸起。
- * 填充从左往右长：先填满主体（最多 35px），超出部分才点亮左侧凸起（最多 3px），
- * 所以是两个对象——s_bar（主体）与 s_tab（凸起），凸起为 0 时隐藏。
- * 电量数字有独立去抖（s_bar_tenth，0.1% 步进），充电时渐进、放电时直接跟随。
- * 电量 <=5% 且正在放电时，百分号按秒闪烁（借 SD3078 秒的奇偶），低电提醒。 */
+/* ---------- 电池图标与像素级黑白双色百分比 ----------
+ * 彩条自右向左延伸：未填充区域剪出白字、填充区域剪出黑字。
+ * 两个裁剪容器内的 Label 使用完全相同的屏幕文字坐标，因此可以
+ * 在任意字形中途分割颜色，不用改变原电池轮廓和填充动画。 */
 static void update_battery(void)
 {
-    static char buf[8];                          /* 最多 "100%" = 4 字符 */
+    static char buf[8];
     uint8_t actual = SW6306_ReadCapacity();
     uint8_t pct;
+    int32_t fill, body, tab, split, text_x;
+    uint8_t blink;
 
     if (actual > 100U) actual = 100U;
     if (SW6306_IsCharging()) {
-        /* 每 500ms 前进 16.7%（167/1000），数字缓慢爬升而不是直接跳 */
         s_bar_tenth = (uint16_t)(s_bar_tenth + 167U);
         if (s_bar_tenth >= (uint16_t)actual * 10U) s_bar_tenth = 0U;
     } else {
         s_bar_tenth = (uint16_t)actual * 10U;
     }
-    pct = (uint8_t)(s_bar_tenth / 10U);          /* 动画后的显示值 */
+    pct = (uint8_t)(s_bar_tenth / 10U);
+    fill = 38 * (int32_t)pct / 100;
+    body = fill < 35 ? fill : 35;
+    tab = fill > 35 ? fill - 35 : 0;
+    split = MAIN_BAT_X + 39 - body;
 
-    /* 原图 40x14：主体 x=4..38 / y=1..12；左侧凸起 x=1..3 / y=4..9。
-     * 填充条画在 A8 轮廓的图层之下（先建 s_bar/s_tab，后建 s_bat_img）。 */
-    {
-        int32_t fill = (38 * (int32_t)pct) / 100;
-        int32_t body = (fill < 35) ? fill : 35;
-        int32_t tab = (fill > 35) ? (fill - 35) : 0;
-
-        /* 主体右对齐生长：左边缘 = 主体右端(MAIN_BAT_X+39) - 当前宽度 */
-        lv_obj_set_size(s_bar, body, 12);
-        lv_obj_set_pos(s_bar, MAIN_BAT_X + 4 + 35 - body, 1);
-        /* 电量配色：>=30% 绿、10..29% 黄、<10% 红 */
-        lv_obj_set_style_bg_color(s_bar, lv_color_hex(
-            (pct >= 30U) ? 0x00F008 : (pct >= 10U) ? 0xE8DC00 : 0xF80000), 0);
-        if (tab > 0) {
-            lv_obj_set_size(s_tab, tab, 6);
-            lv_obj_set_pos(s_tab, MAIN_BAT_X + 1 + 3 - tab, 4);
-            lv_obj_remove_flag(s_tab, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(s_tab, LV_OBJ_FLAG_HIDDEN);
-        }
+    lv_obj_set_size(s_bar, body, 12);
+    lv_obj_set_pos(s_bar, split, 1);
+    lv_obj_set_style_bg_color(s_bar, lv_color_hex(
+        (pct >= 30U) ? 0x00F008 : (pct >= 10U) ? 0xE8DC00 : 0xF80000), 0);
+    if (tab > 0) {
+        lv_obj_set_size(s_tab, tab, 6);
+        lv_obj_set_pos(s_tab, MAIN_BAT_X + 4 - tab, 4);
+        lv_obj_remove_flag(s_tab, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_tab, LV_OBJ_FLAG_HIDDEN);
     }
 
-    /* 百分号显示真实电量（不跟随动画值），并做 >100 的越界钳位 */
+    /* u14b: 每字符宽8px；文字仍居中于原40px轮廓、右移1px。 */
+    text_x = MAIN_BAT_X + (40 - (actual >= 100U ? 32 :
+             (actual >= 10U ? 24 : 16))) / 2 + 1;
     mini_snprintf(buf, sizeof(buf), "%u%%", (unsigned)actual);
-    lv_label_set_text_static(s_pct, buf);
-    /* 低电闪烁：<=5% 且放电中，按 RTC 秒的奇偶隐藏/显示。
-     * 额外的日期合法性判断是为了避免 RTC 未初始化时乱闪。 */
-    if (actual <= 5U && SW6306_IsDischarging() &&
-        SD3078_ReadMonth() >= 1U && SD3078_ReadMonth() <= 12U &&
-        !(SD3078_ReadSec() & 1U)) {
-        lv_obj_add_flag(s_pct, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text_static(s_pct_light, buf);
+    lv_label_set_text_static(s_pct_dark, buf);
+
+    lv_obj_set_pos(s_pct_light_clip, MAIN_BAT_X, 0);
+    lv_obj_set_size(s_pct_light_clip, split - MAIN_BAT_X, 14);
+    lv_obj_set_pos(s_pct_light, text_x - MAIN_BAT_X, 0);
+    lv_obj_set_pos(s_pct_dark_clip, split, 0);
+    lv_obj_set_size(s_pct_dark_clip, MAIN_BAT_X + 40 - split, 14);
+    lv_obj_set_pos(s_pct_dark, text_x - split, 0);
+
+    blink = actual <= 5U && SW6306_IsDischarging() &&
+            SD3078_ReadMonth() >= 1U && SD3078_ReadMonth() <= 12U &&
+            !(SD3078_ReadSec() & 1U);
+    if (blink) {
+        lv_obj_add_flag(s_pct_light_clip, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_pct_dark_clip, LV_OBJ_FLAG_HIDDEN);
     } else {
-        lv_obj_remove_flag(s_pct, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_pct_light_clip, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_pct_dark_clip, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -455,6 +461,20 @@ static void main_timer_cb(lv_timer_t *t)
  *   6. 状态栏温度/ETA/时钟三行 + 各栏文字颜色
  *   7. 电池图标：填充条 → 凸起 → A8 轮廓图 → 百分号子标签
  * 所有坐标都基于上面布局图的常量，尽量别再引入裸数字。 */
+/* 透明容器只负责裁剪，上层数字穿过填充边界时会半白半黑。 */
+static lv_obj_t *make_pct_clip(void)
+{
+    lv_obj_t *obj = lv_obj_create(s_scr);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(obj, 0, 0);
+    lv_obj_set_style_radius(obj, 0, 0);
+    lv_obj_set_style_pad_all(obj, 0, 0);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_size(obj, 40, 14);
+    return obj;
+}
+
 static void main_screen_create(void)
 {
     lv_obj_t *frame;
@@ -541,13 +561,17 @@ static void main_screen_create(void)
     lv_obj_set_style_image_recolor_opa(s_bat_img, LV_OPA_COVER, 0);
     lv_obj_set_pos(s_bat_img, MAIN_BAT_X, 0);
 
-    /* 百分号：作为图标子对象，随图标自动移动；
-     * align 偏移 +1 是补偿等宽字体的视觉重心。 */
-    s_pct = lv_label_create(s_bat_img);
-    lv_obj_set_style_pad_all(s_pct, 0, 0);
-    lv_obj_set_style_text_font(s_pct, menu_font_main(), 0);
-    lv_obj_set_style_text_color(s_pct, lv_color_white(), 0);
-    lv_obj_align(s_pct, LV_ALIGN_CENTER, 1, 0);
+    /* 同一字串画两遍；先画白字后画黑字，均由对应父容器裁剪。 */
+    s_pct_light_clip = make_pct_clip();
+    s_pct_dark_clip = make_pct_clip();
+    s_pct_light = lv_label_create(s_pct_light_clip);
+    s_pct_dark = lv_label_create(s_pct_dark_clip);
+    lv_obj_set_style_pad_all(s_pct_light, 0, 0);
+    lv_obj_set_style_pad_all(s_pct_dark, 0, 0);
+    lv_obj_set_style_text_font(s_pct_light, menu_font_main(), 0);
+    lv_obj_set_style_text_font(s_pct_dark, menu_font_main(), 0);
+    lv_obj_set_style_text_color(s_pct_light, lv_color_white(), 0);
+    lv_obj_set_style_text_color(s_pct_dark, lv_color_black(), 0);
 
     /* ETA 状态机复位：首帧必然显示无效，等稳定 5s 后才有值 */
     s_eta_mode = 0U;
@@ -578,7 +602,9 @@ static void main_screen_destroy(void)
     s_port = s_bus_power = s_bus_volt = NULL;
     s_bat_power = s_bat_volt = s_dir = NULL;
     s_temp = s_clock = s_eta = NULL;
-    s_bar = s_tab = s_bat_img = s_pct = NULL;
+    s_bar = s_tab = s_bat_img = NULL;
+    s_pct_light_clip = s_pct_dark_clip = NULL;
+    s_pct_light = s_pct_dark = NULL;
 }
 
 /* ---------- 主界面按键语义 ----------
