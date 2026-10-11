@@ -43,7 +43,13 @@ static lv_obj_t *s_item;       /* 中间：当前条目（高亮，滑出/静止
 static lv_obj_t *s_item_in;    /* 中间：滑入条目（仅动画期间显示） */
 static lv_obj_t *s_item_next;  /* 右下：下一项（灰） */
 static lv_obj_t *s_item_next_in; /* 右下：动画期间屏外滑入的下一项 */
-static lv_obj_t *s_word_line[3]; /* WORD：独立3行全屏文本窗口 */
+/* Three visible rows plus one entering row; share the menu's PID/timer. */
+#define MENU_WORD_PITCH     13
+#define MENU_WORD_VISIBLE  3U
+static lv_obj_t *s_word_line[MENU_WORD_VISIBLE + 1U];
+static menu_anim_pid_t s_word_scroll;
+static const menu_page_t *s_word_page;
+static uint16_t s_word_base = 0xFFFFU;
 
 /* PID 滑动状态（斜向：x/y 各一组） */
 static menu_anim_pid_t s_pid_out;   /* 滑出 x */
@@ -751,7 +757,7 @@ static void apply_theme(const menu_page_t *pg, uint8_t index)
     lv_obj_set_style_text_font(s_item_in,        menu_font_main(), 0);
     lv_obj_set_style_text_font(s_icon_hint,  menu_font_small(), 0);
     lv_obj_set_style_text_font(s_icon_clock, menu_font_small(), 0);
-    for (i = 0; i < 3U; i++) {
+    for (i = 0; i < MENU_WORD_VISIBLE + 1U; i++) {
         lv_obj_set_style_text_font(s_word_line[i], menu_font_main(), 0);
         lv_obj_set_style_text_color(s_word_line[i], t->text, 0);
     }
@@ -855,21 +861,50 @@ static void icon_clock_tick(lv_timer_t *t)
 }
 
 /* 图标页重绘（redraw 时调用）：初始化/滚动目标/透明度目标/绑定 src */
-/* ---------- WORD 独立3行全屏文本渲染 ----------
- * 不复用TEXT的标题/页码/角落/中心label，也不参与任何PID动画。 */
+/* WORD: a continuous virtual 13px-pitch strip using 4 recycled labels.
+ * A single menu_anim PID animates absolute scroll pixels. When the user
+ * presses NEXT/PREV again, retarget from current pixel: no jump/snap. */
+static void word_apply(const menu_page_t *pg, bool refresh_text)
+{
+    uint16_t max_top = pg->word_line_count > MENU_WORD_VISIBLE ?
+                       (uint16_t)pg->word_line_count - MENU_WORD_VISIBLE : 0U;
+    int32_t pixel = (int32_t)(s_word_scroll.current + 0.5f);
+    uint16_t base, i;
+    int32_t y;
+
+    if (pixel < 0) pixel = 0;
+    if (pixel > (int32_t)max_top * MENU_WORD_PITCH)
+        pixel = (int32_t)max_top * MENU_WORD_PITCH;
+    base = (uint16_t)(pixel / MENU_WORD_PITCH);
+    y = (int32_t)base * MENU_WORD_PITCH - pixel;
+
+    if (base != s_word_base || refresh_text) {
+        s_word_base = base;
+        for (i = 0U; i < MENU_WORD_VISIBLE + 1U; i++) {
+            uint16_t line = base + i;
+            const char *text = "";
+            if (pg->word_lines && line < pg->word_line_count)
+                text = menu_tr(pg->word_lines[line]);
+            lv_label_set_text(s_word_line[i], text ? text : "");
+        }
+    }
+    for (i = 0U; i < MENU_WORD_VISIBLE + 1U; i++)
+        lv_obj_set_y(s_word_line[i], y + (int32_t)i * MENU_WORD_PITCH);
+}
+
 static void word_redraw(const menu_page_t *pg)
 {
-    uint8_t i;
+    float target = (float)pg->word_top * MENU_WORD_PITCH;
 
-    for (i = 0U; i < 3U; i++) {
-        uint16_t line = pg ? ((uint16_t)pg->word_top + i) : 0U;
-        const char *text = "";
-        if (pg && pg->word_lines && line < pg->word_line_count) {
-            text = menu_tr(pg->word_lines[line]);
-        }
-        lv_label_set_text(s_word_line[i], text ? text : "");
+    if (s_word_page != pg) {
+        s_word_page = pg;
+        s_word_base = 0xFFFFU;
+        menu_anim_init(&s_word_scroll, target, target);
+        s_word_scroll.active = false;  /* Initial page: instant placement */
+    } else if (s_word_scroll.target != target) {
+        menu_anim_init(&s_word_scroll, s_word_scroll.current, target);
     }
-    lv_obj_invalidate(s_scr);
+    word_apply(pg, true);  /* Also handles language and theme changes */
 }
 
 static void icon_redraw(const menu_state_t *st, const menu_page_t *pg)
@@ -1034,6 +1069,12 @@ static void menu_ui_anim_tick(lv_timer_t *t)
         !s_prev_in_x.active && !s_next_in_x.active) {
         slide_finish();
     }
+    /* WORD shares the existing 10ms timer and TEXT PID coefficients. */
+    if (s_word_page && s_word_scroll.active) {
+        menu_anim_step(&s_word_scroll);
+        word_apply(s_word_page, false);
+        if (!s_word_scroll.active) lv_obj_invalidate(s_scr);
+    }
     /* 图标页滚动/缩放/透明度动画 */
     if (s_icon_page) {
         icon_anim_tick();
@@ -1113,11 +1154,11 @@ lv_obj_t *menu_ui_create(void)
     center_set_text(s_item_in, "", 0U);
     lv_obj_add_flag(s_item_in, LV_OBJ_FLAG_HIDDEN);
 
-    /* WORD页：固定3行，x=2 / width=156 / y=0,13,26；始终CLIP并居中。
-     * 只创建一次，进入WORD时显示，其它页面全部隐藏。 */
-    for (uint8_t i = 0U; i < 3U; i++) {
+    /* WORD: y=0/13/26 plus one entering row; labels are always clipped.
+     * All four are pooled permanently; no new timer or LVGL animation. */
+    for (uint8_t i = 0U; i < MENU_WORD_VISIBLE + 1U; i++) {
         s_word_line[i] = lv_label_create(s_scr);
-        lv_obj_set_pos(s_word_line[i], 2, (int32_t)i * 13);
+        lv_obj_set_pos(s_word_line[i], 2, (int32_t)i * MENU_WORD_PITCH);
         lv_obj_set_width(s_word_line[i], 156);
         lv_obj_set_height(s_word_line[i], one_line);
         lv_obj_set_style_pad_all(s_word_line[i], 0, 0);
@@ -1181,6 +1222,11 @@ void menu_ui_redraw(void)
     apply_theme(pg, st->index);
 
     word_page = st->active && pg && pg->type == MENU_PAGE_WORD;
+    if (!word_page) {
+        s_word_scroll.active = false;
+        s_word_page = NULL;
+        s_word_base = 0xFFFFU;  /* Returning to WORD starts at its current top */
+    }
     icon_page = st->active && pg && pg->type == MENU_PAGE_ICON
                 && pg->icons && pg->item_count > 0;
 
@@ -1191,7 +1237,8 @@ void menu_ui_redraw(void)
         lv_obj_add_flag(s_item_in, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_item_prev_in, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_item_next_in, LV_OBJ_FLAG_HIDDEN);
-        for (uint8_t i = 0U; i < 3U; i++) lv_obj_add_flag(s_word_line[i], LV_OBJ_FLAG_HIDDEN);
+        for (uint8_t i = 0U; i < MENU_WORD_VISIBLE + 1U; i++)
+            lv_obj_add_flag(s_word_line[i], LV_OBJ_FLAG_HIDDEN);
         s_last_active = false;
         s_icon_page_was = false;
         return;
@@ -1221,11 +1268,12 @@ void menu_ui_redraw(void)
             lv_obj_add_flag(s_icons[i].img, LV_OBJ_FLAG_HIDDEN);
         }
         s_icon_count = 0U;
-        for (uint8_t i = 0U; i < 3U; i++) {
+        for (uint8_t i = 0U; i < MENU_WORD_VISIBLE + 1U; i++) {
             lv_obj_remove_flag(s_word_line[i], LV_OBJ_FLAG_HIDDEN);
         }
     } else if (icon_page) {
-        for (uint8_t i = 0U; i < 3U; i++) lv_obj_add_flag(s_word_line[i], LV_OBJ_FLAG_HIDDEN);
+        for (uint8_t i = 0U; i < MENU_WORD_VISIBLE + 1U; i++)
+            lv_obj_add_flag(s_word_line[i], LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_header, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_indicator, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_item_prev, LV_OBJ_FLAG_HIDDEN);
@@ -1243,7 +1291,8 @@ void menu_ui_redraw(void)
             s_slide_dir = 0;
         }
     } else {
-        for (uint8_t i = 0U; i < 3U; i++) lv_obj_add_flag(s_word_line[i], LV_OBJ_FLAG_HIDDEN);
+        for (uint8_t i = 0U; i < MENU_WORD_VISIBLE + 1U; i++)
+            lv_obj_add_flag(s_word_line[i], LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_header, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_indicator, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(s_item_prev, LV_OBJ_FLAG_HIDDEN);
