@@ -144,7 +144,7 @@ static const menu_tr_t menu_tr_table[] = {
     { "None", "不休眠" },
     { "Pickup Wake", "抬起唤醒" },
     { "Motion Wake", "运动唤醒" },
-    { "Wake Home After", "唤醒回主页" },
+    { "Home Delay", "唤醒回主页" },
     { "1 min", "1 分钟" },
     { "5 min", "5 分钟" },
     { "15 min", "15 分钟" },
@@ -385,13 +385,13 @@ MENU_PAGE_("Display", menu_page_display, menu_items_display);
 
 /* ==================== 休眠与唤醒页（Sleep & Wake，三级） ====================
  * Pickup/Motion Wake 仍控制DeepSleep时SC7A20是否保留10Hz；
- * Wake Home After控制一次DeepSleep持续多久后，唤醒先显示主屏而保留原菜单现场。 */
+ * Home Delay控制一次DeepSleep持续多久后，唤醒先显示主屏而保留原菜单现场。 */
 static const menu_item_t menu_items_sleep_wake[] = {
     MENU_ITEM_BACK_("Return"),
     MENU_ITEM_ENUM_("Auto Sleep", &s_sleep_idx, s_sleep_opts, 9, sleep_apply),
     MENU_ITEM_TOGGLE_("Pickup Wake", &SC7A20_AlgoConfig.pickup_wake, "On", "Off", NULL),
     MENU_ITEM_TOGGLE_("Motion Wake", &SC7A20_AlgoConfig.motion_wake, "On", "Off", NULL),
-    MENU_ITEM_ENUM_("Wake Home After", &s_wake_home_idx, s_wake_home_opts, 5, NULL),
+    MENU_ITEM_ENUM_("Home Delay", &s_wake_home_idx, s_wake_home_opts, 5, NULL),
 };
 MENU_PAGE_("Sleep & Wake", menu_page_sleep_wake, menu_items_sleep_wake);
 

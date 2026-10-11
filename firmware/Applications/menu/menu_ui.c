@@ -226,11 +226,12 @@ static int32_t menu_fixed_text_w(const lv_obj_t *lbl, uint8_t chars)
     return w;
 }
 
-/* Corners clip in fixed widths: 16 chars at top-left, 10 at bottom-right.
- * Both the current and entering labels share this routine. */
+/* Top-left uses CLIP (16 chars); bottom-right uses DOTS (10 chars).
+ * Animated entering/exiting corners follow the same rule. */
 static void corner_set_text(lv_obj_t *lbl, const char *text, uint8_t right_align)
 {
-    lv_label_set_long_mode(lbl, LV_LABEL_LONG_MODE_CLIP);
+    lv_label_set_long_mode(lbl, right_align ? LV_LABEL_LONG_MODE_DOTS :
+                                             LV_LABEL_LONG_MODE_CLIP);
     lv_obj_set_width(lbl, menu_fixed_text_w(lbl, right_align ?
                                            MENU_TEXT_NEXT_CHARS : MENU_TEXT_PREV_CHARS));
     lv_obj_set_style_text_align(lbl,
@@ -322,7 +323,7 @@ static void item_recenter(lv_obj_t *label)
     lv_obj_set_x(label, (MENU_SCR_W - lv_obj_get_width(label)) / 2);
 }
 
-/* Bottom-right: 10-character CLIP viewport. */
+/* Bottom-right: 10-character DOTS viewport. */
 static void pos_next_corner(lv_obj_t *lbl)
 {
     lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_RIGHT, 0);

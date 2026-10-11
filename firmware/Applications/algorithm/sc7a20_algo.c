@@ -90,10 +90,9 @@ void SC7A20_AlgoLoadSample(void)
  * Shared PB8/EXTI8 is low-active; ISR always wakes without classifying source.
  * Motion: AOI1 (0x30) XYZ OR + high-pass (CTRL2.HPIS1), INT1 CTRL3[6].
  * Pickup: AOI2 (0x34) 6D Movement XYZ axes, INT1 CTRL3[5].
- * Both Motion and Pickup use a shared 25Hz / 2g LP ODR while either is enabled.
- * IRQ remains non-latched
- * to avoid holding the shared SW6306 line low.
- * No added CPU classification or sampling-rate escalation on wake.
+ * Motion and Pickup share the 25Hz / 2g LP ODR. Motion HPF uses
+ * HPM=11 autoreset after interrupt (LIS2DH12-compatible experiment);
+ * PB8 IRQ stays non-latched to coexist with SW6306.
  */
 static void sc7a20_wake_routes_off(void)
 {
@@ -102,7 +101,9 @@ static void sc7a20_wake_routes_off(void)
         SC7A20_CTRL3_I1_AOI1 | SC7A20_CTRL3_I1_AOI2, 0U);
     SC7A20_ByteWrite(SC7A20_CTRG_INT1_CFG, 0U);
     SC7A20_ByteWrite(SC7A20_CTRG_INT2_CFG, 0U);
-    SC7A20_ByteModify(SC7A20_CTRG_CTRL2, SC7A20_CTRL2_HPIS1, 0U);
+    /* Also restore normal-reset HPF mode before the next sleep session. */
+    SC7A20_ByteModify(SC7A20_CTRG_CTRL2,
+        SC7A20_CTRL2_HPM_MSK | SC7A20_CTRL2_HPIS1, 0U);
 }
 
 void SC7A20_AlgoPmSuspend(void *ctx)
@@ -146,8 +147,11 @@ void SC7A20_AlgoPmSuspend(void *ctx)
             SC7A20_INT_CFG_XHIE | SC7A20_INT_CFG_XLIE |
             SC7A20_INT_CFG_YHIE | SC7A20_INT_CFG_YLIE |
             SC7A20_INT_CFG_ZHIE | SC7A20_INT_CFG_ZLIE);
+        /* HPM=11 automatically resets the HP filter after an interrupt.
+         * Test for one-shot wake events without changing output FDS. */
         SC7A20_ByteModify(SC7A20_CTRG_CTRL2,
-            SC7A20_CTRL2_HPIS1, SC7A20_CTRL2_HPIS1);
+            SC7A20_CTRL2_HPM_MSK | SC7A20_CTRL2_HPIS1,
+            SC7A20_HPM_AUTORST | SC7A20_CTRL2_HPIS1);
         routes |= SC7A20_CTRL3_I1_AOI1;
     }
 
@@ -162,9 +166,8 @@ void SC7A20_AlgoPmSuspend(void *ctx)
         routes |= SC7A20_CTRL3_I1_AOI2;
     }
 
-    /* Shared ODR: both wake engines run at 25Hz, including Pickup-only.
-     * Motion's sporadic triggers require diagnosis; leave HPIS1, 192mg
-     * threshold and duration 0 unchanged for a controlled test. */
+    /* Motion trial: 25Hz, 6LSB (96mg), duration 0, HPF autoreset.
+     * Pickup threshold and 6D mode are unchanged. */
     SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
         SC7A20_ODR_25HZ | SC7A20_CTRL1_LPEN | SC7A20_DEFAULT_AXIS_EN);
 
@@ -179,9 +182,8 @@ void SC7A20_AlgoPmSuspend(void *ctx)
     SC7A20_ByteModify(SC7A20_CTRG_CTRL3,
         SC7A20_CTRL3_I1_AOI1 | SC7A20_CTRL3_I1_AOI2, routes);
 
-    /* At 10Hz a legitimate 6D pulse lasts ~100ms. The former guard shut
-     * down sensor wake after ANY one low sample, often during positioning.
-     * Only a persistently asserted line triggers the fault fallback. */
+    /* Preserve brief wake pulses; disarm only if INT1 remains asserted
+     * for three consecutive checks. */
     {
         uint8_t low_streak = 0U;
         for (uint8_t i = 0U; i < 3U; ++i) {
