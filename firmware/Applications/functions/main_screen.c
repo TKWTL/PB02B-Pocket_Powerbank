@@ -181,67 +181,88 @@ static void update_ports(void)
 
 /* ---------- 状态栏：ETA 预计时间（第二行） ----------
  * 由电池功率与库仑计能量估算"还要多久充满 / 还能用多久"。
- * 三重防抖，避免倒计时每帧乱跳：
+ * 【电池侧 ETA】三重防抖，避免倒计时每帧乱跳：
  *   1) 功率低于 200mW 视为空闲 → 直接置无效；
  *   2) 充/放电方向一变就复位，并等 5s（10 个 500ms 周期）稳定；
  *   3) 稳定后用 1/8 步长 IIR 平滑功率（时间常数约 4s），且每 10s 才刷新一次结果。
  * 能量取自 SW6306 内部库仑计镜像，因此必须先确认 CapacityLoadOK()
  * （本次容量读取成功），否则算出来的是基于旧值的错数。
- * 充放电的能量基准不同：充电算"还差多少充满"= full-rem；放电算剩余 = rem。 */
+ * 充放电的能量基准不同：充电算"还差多少充满"= full-rem；放电算剩余 = rem。
+ *
+ * 【小电流模式覆盖】该模式下除了电池能撑多久，还有一个"本模式还能维持多久"的
+ * 硬上限（空闲 SW6306_LowCurrentIdleTimeout_ms 后自动退出），两者取较小值。
+ * 关键：这段覆盖**必须放在 IIR/10s 限速门之外**——倒计时是真实时钟推进的，
+ * 若跟着 10s 节拍走，显示会出现"每 10 秒跳 10 分钟"的台阶。
+ * 小电流模式与充电互斥（充电会立刻退出该模式），故此处必然是放电场景。 */
 static void update_eta(uint32_t bat_uw)
 {
     uint8_t mode = SW6306_IsCharging() ? 1U :
                    (SW6306_IsDischarging() ? 2U : 0U);
     uint32_t power_mw = (bat_uw + 500U) / 1000U;   /* uW → mW，四舍五入 */
+    uint16_t eta_min = MAIN_ETA_INVALID;
     float full, rem, energy, minutes;
 
+    /* ---------- 电池侧 ETA（受 IIR 与 10s 限速） ---------- */
     if (mode == 0U || power_mw < 200U) {
+        /* 空闲：无方向可报，直接无效（不能沿用上次的放电 ETA） */
         s_eta_mode = mode;
         s_eta_age = 0U;
-        s_eta_minutes = MAIN_ETA_INVALID;
-        return;
-    }
-    if (mode != s_eta_mode) {
+    } else if (mode != s_eta_mode) {
         /* 方向刚变：旧的平滑功率不再有参考意义，全部重来 */
         s_eta_mode = mode;
         s_eta_power_mw = power_mw;
         s_eta_age = 0U;
         s_eta_refresh = 0U;
-        s_eta_minutes = MAIN_ETA_INVALID;
-        return;
+    } else {
+        /* 1/8 步长 IIR。刻意不用瞬时电流，否则 ETA 每帧可见地跳。
+         * 加 7 再除 8 = 向上取整，保证小差值也能收敛到目标而不是卡住。 */
+        if (power_mw > s_eta_power_mw)
+            s_eta_power_mw += (power_mw - s_eta_power_mw + 7U) / 8U;
+        else
+            s_eta_power_mw -= (s_eta_power_mw - power_mw + 7U) / 8U;
+
+        if (s_eta_age < 10U) {
+            ++s_eta_age;             /* 方向变化后先稳定 5s（10 x 500ms） */
+        } else if (++s_eta_refresh >= 20U) {
+            s_eta_refresh = 0U;      /* 到刷新点：重算并把结果锁进 s_eta_minutes */
+            eta_min = s_eta_minutes;
+
+            if (SW6306_CapacityLoadOK() && s_eta_power_mw >= 200U) {
+                full = SW6306_ReadMaxEnergy_mWh();
+                rem = SW6306_ReadRemainEnergy_mWh();
+                /* 合理性校验：满能量必须为正、剩余量在 [0, 105%满] 内，
+                 * 否则库仑计数据不可信（学习未完成/刚重初始化），宁可不显示。 */
+                if (full > 500.0f && rem >= 0.0f && rem <= full * 1.05f) {
+                    energy = (mode == 1U) ? (full - rem) : rem;
+                    minutes = energy * 60.0f / (float)s_eta_power_mw;
+                    s_eta_minutes = (minutes >= 0.0f && minutes < 6000.0f) ?
+                                    (uint16_t)(minutes + 0.5f) : MAIN_ETA_INVALID;
+                } else {
+                    s_eta_minutes = MAIN_ETA_INVALID;
+                }
+            } else {
+                s_eta_minutes = MAIN_ETA_INVALID;   /* 容量没读成功 → 别用旧值算 */
+            }
+            eta_min = s_eta_minutes;
+        } else {
+            eta_min = s_eta_minutes;     /* 未到刷新点：沿用锁存结果 */
+        }
     }
 
-    /* 1/8 步长 IIR。刻意不用瞬时电流，否则 ETA 每帧可见地跳。
-     * 加 7 再除 8 = 向上取整，保证小差值也能收敛到目标而不是卡住。 */
-    if (power_mw > s_eta_power_mw)
-        s_eta_power_mw += (power_mw - s_eta_power_mw + 7U) / 8U;
-    else
-        s_eta_power_mw -= (s_eta_power_mw - power_mw + 7U) / 8U;
+    /* ---------- 小电流模式倒计时覆盖（每 500ms 都算，不受限速门影响） ---------- */
+    if (mode == 2U) {
+        uint32_t low_ms = SW6306_AlgoGetLowCurrentRemainingMs();
+        if (low_ms != 0U) {
+            /* 向上取整到分钟：剩 1ms 也显示 01 而不是 00，避免提前归零 */
+            uint16_t low_min = (uint16_t)((low_ms + 59999U) / 60000U);
+            if (low_min > 5999U) low_min = 5999U;
+            if (eta_min == MAIN_ETA_INVALID || low_min < eta_min) {
+                eta_min = low_min;
+            }
+        }
+    }
 
-    if (s_eta_age < 10U) {
-        ++s_eta_age;                /* 方向变化后先稳定 5s（10 x 500ms） */
-        if (s_eta_age < 10U) return;
-    } else if (++s_eta_refresh < 20U) {
-        return;                      /* 之后每 10s 才更新一次结果（20 x 500ms） */
-    }
-    s_eta_refresh = 0U;
-
-    if (!SW6306_CapacityLoadOK() || s_eta_power_mw < 200U) {
-        s_eta_minutes = MAIN_ETA_INVALID;   /* 本次容量没读成功 → 不显示，别用旧值算 */
-        return;
-    }
-    full = SW6306_ReadMaxEnergy_mWh();
-    rem = SW6306_ReadRemainEnergy_mWh();
-    /* 合理性校验：满能量必须为正、剩余量在 [0, 105%满] 内，
-     * 否则说明库仑计数据不可信（学习未完成/刚重初始化），宁可不显示。 */
-    if (!(full > 500.0f && rem >= 0.0f && rem <= full * 1.05f)) {
-        s_eta_minutes = MAIN_ETA_INVALID;
-        return;
-    }
-    energy = (mode == 1U) ? (full - rem) : rem;
-    minutes = energy * 60.0f / (float)s_eta_power_mw;
-    s_eta_minutes = (minutes >= 0.0f && minutes < 6000.0f) ?
-                     (uint16_t)(minutes + 0.5f) : MAIN_ETA_INVALID;
+    s_eta_minutes = eta_min;
 }
 
 /* ---------- 电池栏：图标填充条 + 百分号 ----------
@@ -304,11 +325,12 @@ static void update_battery(void)
 }
 
 /* ---------- 状态栏：温度（第一行）、ETA（第二行）、时钟（第三行） ----------
- * 【温度格式的关键点】t10 = 温度 x10 的整数（0.1°C 分辨率）。
- * 标签只有 44px = 5 字符，装不下 6 个字符（如 "-10.0°C"），
- * 所以超过 ±99.9°C 时退化成整数显示（"100°C" / "-10°C" 都是 5 字符）。
- *   阈值写成 t10 <= -100 || t10 >= 1000，即 -10.0°C 与 100.0°C。
- *   （曾误写成 >= 100，那等于 10.0°C 就退化，导致 30.2°C 显示成 30°C。）
+ * 【温度格式】t10 = 温度 x10 的整数（0.1°C 分辨率），常态一律保留 1 位小数。
+ * 退化阈值放到 ±1000°C（t10 的 ±10000）——那已远超 NTC 物理量程，
+ * 等于"实际永远保留小数"；留这个分支只是防御显示缓冲被写爆。
+ *   历史坑：曾把阈值写成 t10 >= 100（实际是 10.0°C）以及 1000（100.0°C），
+ *   都会让常见温度提前丢掉小数（30.2°C 显示成 30°C）。宽度已从 44px 扩到
+ *   52px，足够容纳 "-10.0°C"（7 字符）而不被 CLIP 截断。
  * 正负数的四舍五入：正数 +5 再除 10，负数取绝对值后同样处理再补负号，
  * 避免 C 的整除向零截断在负数上产生偏差。
  * 【时钟】用 RTC 秒的奇偶交替显示 "HH:MM" 与 "HH MM" 作为秒闪。
@@ -320,8 +342,8 @@ static void update_clock_and_temp(void)
     float temp = SW6306_ReadNTCTemp();
     int32_t t10 = (int32_t)(temp * 10.0f + ((temp >= 0.0f) ? 0.5f : -0.5f));
 
-    /* 0.1°C 精度保持到 +99.9°C；到 -10.0°C / +100.0°C 改用整数以塞进 44px */
-    if (t10 <= -100 || t10 >= 1000) {
+    /* 常态保留 0.1°C；±1000°C 以上才退化为整数（实际量程达不到，仅作防御） */
+    if (t10 <= -10000 || t10 >= 10000) {
         int32_t integer = (t10 >= 0) ? (t10 + 5) / 10 : -((-t10 + 5) / 10);
         mini_snprintf(temp_buf, sizeof(temp_buf), "%ld°C", (long)integer);
     } else {
@@ -378,8 +400,14 @@ static void main_refresh(void)
     uint32_t bat_uw = (uint32_t)SW6306_ReadVBAT() * SW6306_ReadIBAT();
     uint32_t centiw, cv;      /* centiw = 0.01W 为单位；cv = 电压最小单位 */
     sw6306_special_mode_t mode = SW6306_AlgoGetSpecialMode();
+    uint32_t bus_rgb;         /* BUS 功率/电压共用的主色（RGB565 量化值） */
 
     update_ports();
+
+    /* BUS 栏兼作"特殊模式"指示灯：小电流=粉、慢充=绿、正常=浅灰白。
+     * 功率与电压共用同一个颜色，便于一眼看出"这一栏当前处于什么模式"。 */
+    bus_rgb = (mode == SW6306_SPECIAL_LOW_CURRENT) ? 0xF880C8U :
+              (mode == SW6306_SPECIAL_SLOW_CHARGE) ? 0x40DC80U : 0xF0F0F0U;
 
     if (SW6306_ReadIBUS() < 5U) bus_uw = 0U;
     /* uW → 0.01W：+5000 再 /10000 即四舍五入 */
@@ -389,11 +417,7 @@ static void main_refresh(void)
                   (unsigned long)(centiw / 100U),
                   (unsigned long)(centiw % 100U));
     lv_label_set_text_static(s_bus_power, bus_pw);
-    /* BUS 功率兼作"特殊模式"指示灯：小电流=粉、慢充=绿、正常=浅灰白。
-     * 颜色与 update_ports() 的端口文字互不干扰。 */
-    lv_obj_set_style_text_color(s_bus_power, lv_color_hex(
-        (mode == SW6306_SPECIAL_LOW_CURRENT) ? 0xF880C8 :
-        (mode == SW6306_SPECIAL_SLOW_CHARGE) ? 0x40DC80 : 0xF0F0F0), 0);
+    lv_obj_set_style_text_color(s_bus_power, lv_color_hex(bus_rgb), 0);
 
     /* 电池功率：同样 0.01W 分辨率 */
     centiw = (bat_uw + 5000U) / 10000U;
@@ -407,6 +431,7 @@ static void main_refresh(void)
     mini_snprintf(bus_v, sizeof(bus_v), "%02lu.%02luV",
                   (unsigned long)(cv / 100U), (unsigned long)(cv % 100U));
     lv_label_set_text_static(s_bus_volt, bus_v);
+    lv_obj_set_style_text_color(s_bus_volt, lv_color_hex(bus_rgb), 0);
 
     /* 电池电压直接用 mV（1mV 显示单位），故无需换算 */
     cv = SW6306_ReadVBAT();
@@ -474,38 +499,39 @@ static void main_screen_create(void)
     lv_obj_set_style_bg_opa(frame, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_all(frame, 0, 0);
     lv_obj_remove_flag(frame, LV_OBJ_FLAG_SCROLLABLE);
-    /* BUS 栏三行：功率/电压左对齐 x4、宽 56 = 7 字符（够 "99.99W" 这类最长格式）。
+    /* BUS 栏三行：左对齐 x5、宽 56 = 7 字符（够 "99.99W" 这类最长格式）。
      * 端口行单独居中：端口文案最长 6 字符 = 48px（协议名经 short_proto 缩写后
-     * 最多 4 字符，加 "A:"/"C:" 前缀），正好在框内(x2..52)左右各留约 2px。 */
+     * 最多 4 字符，加 "A:"/"C:" 前缀）。 */
     s_port      = make_label(5,   MAIN_ROW_TOP + 1, 48, LV_TEXT_ALIGN_CENTER);
     s_bus_power = make_label(5,   MAIN_ROW_MID, 56, LV_TEXT_ALIGN_LEFT);
     s_bus_volt  = make_label(5,   MAIN_ROW_BOT, 56, LV_TEXT_ALIGN_LEFT);
 
-    /* 8px 箭头架在端口框右缘与电池图标左缘之间（盒 x62..69，墨迹居中于 x64..67）；
+    /* 8px 箭头位于端口框右缘与电池图标左缘之间，盒 x55..62、墨迹居中于 x57..60；
      * 空闲时不画箭头（空串）但保留对象，避免影响其它元素排版。 */
     s_dir       = make_label(55,  MAIN_ROW_TOP, 8, LV_TEXT_ALIGN_CENTER);
-    /* 电池栏两行：x64 起、宽 48 = 6 字符，居中于电池图标（x68..107）上方。
+    /* 电池栏两行：x62 起、宽 48 = 6 字符，居中于电池图标（x68..107）上方。
      * 6 字符正好容纳 "21.50W" / "7.497V" 这类最高精度格式。
-     * 注意标签盒 x64..111 与箭头的盒(x62..69)在 x64..69 有重叠，但文字实际
-     * 只占 x71..104（6 字符居中），不会视觉相撞；若以后把文案改成左对齐或
-     * 加长到 6 字符以上，需重新核对这段。 */
+     * 文字实际只占约 x71..104（居中），与箭头墨迹(x57..60)不相撞；
+     * 若以后把文案改成左对齐或加长到 6 字符以上，需重新核对。 */
     s_bat_power = make_label(62,  MAIN_ROW_MID, 48, LV_TEXT_ALIGN_CENTER);
     s_bat_volt  = make_label(62,  MAIN_ROW_BOT, 48, LV_TEXT_ALIGN_CENTER);
 
-    /* 状态栏：温度 44px（5 字符，故 >99.9°C 退化为整数）、ETA/时钟 40px。
-     * 温度行 +1，借用顶行余量把字形下移 1px 视觉居中。
+    /* 状态栏：温度 52px、ETA/时钟 40px。
+     * 温度行 +1，借用顶行余量把字形下移 1px 视觉居中；宽度扩到 52px 是为了
+     * 让 "-10.0°C"（7 字符）也有余量，从而常态一直保留 1 位小数。
      * 行序：温度(上) / ETA(中) / 时钟(下)——刻意把 ETA 放中间、
      * 时钟放低行，读时间时视线更靠下。 */
-    s_temp      = make_label(114, MAIN_ROW_TOP + 1, 44, LV_TEXT_ALIGN_RIGHT);
+    s_temp      = make_label(106, MAIN_ROW_TOP + 1, 52, LV_TEXT_ALIGN_RIGHT);
     s_eta       = make_label(118, MAIN_ROW_MID, 40, LV_TEXT_ALIGN_RIGHT);
     s_clock     = make_label(118, MAIN_ROW_BOT, 40, LV_TEXT_ALIGN_RIGHT);
-    /* 状态栏文字用三级灰阶区分主次：电池数值最亮、温度/时钟次之、ETA 带蓝调 */
-    lv_obj_set_style_text_color(s_bat_power, lv_color_hex(0xD0DCE0), 0);
-    lv_obj_set_style_text_color(s_bat_volt,  lv_color_hex(0xD0DCE0), 0);
-    lv_obj_set_style_text_color(s_temp,      lv_color_hex(0xB8C4D0), 0);
-    lv_obj_set_style_text_color(s_clock,     lv_color_hex(0xB8C4D0), 0);
+    /* 配色分层：温度/时钟（主信息）最亮，ETA 次之带蓝调，
+     * BAT 功率/电压压暗一档——让时间与温度成为视觉重点。 */
+    lv_obj_set_style_text_color(s_bat_power, lv_color_hex(0xB8C4D0), 0);
+    lv_obj_set_style_text_color(s_bat_volt,  lv_color_hex(0xB8C4D0), 0);
+    lv_obj_set_style_text_color(s_temp,      lv_color_hex(0xD0DCE0), 0);
+    lv_obj_set_style_text_color(s_clock,     lv_color_hex(0xD0DCE0), 0);
     lv_obj_set_style_text_color(s_eta,       lv_color_hex(0x88B4D8), 0);
-    lv_label_set_recolor(s_port, true);      /* 只对端口标签启用 #RRGGBB 色码 */
+    lv_label_set_recolor(s_port, true);      /* 端口标签启用 #RRGGBB 色码 */
 
     /* 电量填充条：先在底层画，再由上面的 A8 轮廓图盖出边框效果。
      * 初始宽 0、右对齐到主体右端，实际尺寸每次刷新由 update_battery() 设定。 */

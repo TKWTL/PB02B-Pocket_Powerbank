@@ -83,6 +83,12 @@ float SW6306_AlgoGetEquivalentCycles(void);
 uint8_t SW6306_AlgoDischargeSessionActive(void);
 sw6306_special_mode_t SW6306_AlgoGetSpecialMode(void);
 
+/* 小电流模式下，距离"因空闲而自动退出该模式"还剩多少毫秒。
+ * 返回 0 = 当前不在小电流模式（或已满足退出条件/正在充电）。
+ * 供主界面与放电 ETA 取较小值一起显示：小电流模式的倒计时通常比
+ * 电池剩余放电时间短得多，用户真正关心的是前者。 */
+uint32_t SW6306_AlgoGetLowCurrentRemainingMs(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -365,6 +365,29 @@ sw6306_special_mode_t SW6306_AlgoGetSpecialMode(void)
 {
     return s_special_mode;
 }
+
+/* 小电流模式剩余时间（ms）。判据与 SW6306_AlgoService100ms() 里
+ * "因空闲退出小电流"的那段完全一致，避免两处逻辑漂移：
+ *   - 不在小电流模式 → 0
+ *   - 正在充电（服务函数会立刻退出该模式）→ 0
+ *   - 已超时（下一轮 100ms 服务就会退出）→ 0
+ * 否则返回 timeout - elapsed。
+ * s_last_high_load_tick 会被 100ms 服务更新，这里与它做无符号相减，
+ * 天然兼容 tick 回绕。 */
+uint32_t SW6306_AlgoGetLowCurrentRemainingMs(void)
+{
+    uint32_t now, elapsed, timeout_ticks;
+
+    if (s_special_mode != SW6306_SPECIAL_LOW_CURRENT) return 0U;
+    if (SW6306_IsCharging()) return 0U;
+
+    now = xTaskGetTickCount();
+    timeout_ticks = pdMS_TO_TICKS(SW6306_LowCurrentIdleTimeout_ms);
+    elapsed = (uint32_t)(now - s_last_high_load_tick);
+
+    if (elapsed >= timeout_ticks) return 0U;
+    return pdTICKS_TO_MS(timeout_ticks - elapsed);
+}
 /*************************** 小电流与慢充策略结束 *******************************/
 
 /*************************** SW6306 配置应用算法开始 ****************************/
