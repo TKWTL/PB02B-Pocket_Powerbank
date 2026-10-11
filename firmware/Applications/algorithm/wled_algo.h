@@ -61,6 +61,7 @@ uint16_t WLED_AlgoGetPwm(void);
 uint8_t WLED_AlgoIsOn(void);
 uint8_t WLED_AlgoIsProtectedOff(void);
 uint8_t WLED_AlgoOwnsFakeA1(void);
+uint8_t WLED_AlgoMeterBusy(void); /* Includes SOS and fake-A1 handover */
 
 #ifdef __cplusplus
 }
