@@ -77,7 +77,7 @@
 
 /* ETA 无效哨兵：显示成 "-----"（见 update_clock_and_temp）。
  * 选 0xFFFF 是因为 ETA 计算被限制在 6000 分钟以内，不会与该值冲突。 */
-#define MAIN_ETA_INVALID        0xFFFFU
+#define MAIN_ETA_INVALID        0xFFFFFFFFUL
 
 /* 每个标签的固定尺寸：宽由调用点给出（决定可容纳字符数），高恒为 14 = 一个行盒。
  * 高度必须 >= 字体 line_height，否则字形会被纵向裁切。 */
@@ -102,7 +102,9 @@ static uint16_t s_bar_tenth;
 /* ETA（剩余/充满时间）状态机。刻意用 IIR 平滑功率并限速刷新，
  * 否则瞬时电流会让倒计时每帧都在跳。 */
 static uint32_t s_eta_power_mw;                             /* 平滑后的功率（mW） */
-static uint16_t s_eta_minutes;                              /* 结果，MAIN_ETA_INVALID=无效 */
+static uint32_t s_eta_bat_seconds = MAIN_ETA_INVALID;      /* 电池侧独立 ETA，秒 */
+static uint32_t s_eta_bat_stamp;                           /* 电池ETA采样时刻，ms */
+static uint32_t s_eta_seconds = MAIN_ETA_INVALID;          /* 显示ETA，秒 */
 static uint8_t s_eta_mode, s_eta_age, s_eta_refresh;        /* 方向 / 稳定计数 / 刷新分频 */
 
 /* 协议名缩写：仅用于主界面显示，驱动层的全名一律不动。
@@ -179,90 +181,62 @@ static void update_ports(void)
                                 lv_color_white() : lv_color_hex(0x000000), 0);
 }
 
-/* ---------- 状态栏：ETA 预计时间（第二行） ----------
- * 由电池功率与库仑计能量估算"还要多久充满 / 还能用多久"。
- * 【电池侧 ETA】三重防抖，避免倒计时每帧乱跳：
- *   1) 功率低于 200mW 视为空闲 → 直接置无效；
- *   2) 充/放电方向一变就复位，并等 5s（10 个 500ms 周期）稳定；
- *   3) 稳定后用 1/8 步长 IIR 平滑功率（时间常数约 4s），且每 10s 才刷新一次结果。
- * 能量取自 SW6306 内部库仑计镜像，因此必须先确认 CapacityLoadOK()
- * （本次容量读取成功），否则算出来的是基于旧值的错数。
- * 充放电的能量基准不同：充电算"还差多少充满"= full-rem；放电算剩余 = rem。
- *
- * 【小电流模式覆盖】该模式下除了电池能撑多久，还有一个"本模式还能维持多久"的
- * 硬上限（空闲 SW6306_LowCurrentIdleTimeout_ms 后自动退出），两者取较小值。
- * 关键：这段覆盖**必须放在 IIR/10s 限速门之外**——倒计时是真实时钟推进的，
- * 若跟着 10s 节拍走，显示会出现"每 10 秒跳 10 分钟"的台阶。
- * 小电流模式与充电互斥（充电会立刻退出该模式），故此处必然是放电场景。 */
+/* ---------- ETA：电池估算与小电流倒计时取最小 ----------
+ * 分离电池 ETA 的估计基准和当前显示值，避免小电流倒计时覆盖电池估算。
+ * 电池 ETA 每 10s 更新一次，期间依靠 LVGL 毫秒 tick 递减显示秒数。 */
 static void update_eta(uint32_t bat_uw)
 {
     uint8_t mode = SW6306_IsCharging() ? 1U :
                    (SW6306_IsDischarging() ? 2U : 0U);
-    uint32_t power_mw = (bat_uw + 500U) / 1000U;   /* uW → mW，四舍五入 */
-    uint16_t eta_min = MAIN_ETA_INVALID;
-    float full, rem, energy, minutes;
+    uint32_t power_mw = (bat_uw + 500U) / 1000U;
+    uint32_t now = lv_tick_get(), best = MAIN_ETA_INVALID;
 
-    /* ---------- 电池侧 ETA（受 IIR 与 10s 限速） ---------- */
     if (mode == 0U || power_mw < 200U) {
-        /* 空闲：无方向可报，直接无效（不能沿用上次的放电 ETA） */
         s_eta_mode = mode;
-        s_eta_age = 0U;
+        s_eta_age = s_eta_refresh = 0U;
+        s_eta_bat_seconds = MAIN_ETA_INVALID;
     } else if (mode != s_eta_mode) {
-        /* 方向刚变：旧的平滑功率不再有参考意义，全部重来 */
         s_eta_mode = mode;
         s_eta_power_mw = power_mw;
-        s_eta_age = 0U;
-        s_eta_refresh = 0U;
+        s_eta_age = s_eta_refresh = 0U;
+        s_eta_bat_seconds = MAIN_ETA_INVALID;
     } else {
-        /* 1/8 步长 IIR。刻意不用瞬时电流，否则 ETA 每帧可见地跳。
-         * 加 7 再除 8 = 向上取整，保证小差值也能收敛到目标而不是卡住。 */
         if (power_mw > s_eta_power_mw)
             s_eta_power_mw += (power_mw - s_eta_power_mw + 7U) / 8U;
         else
             s_eta_power_mw -= (s_eta_power_mw - power_mw + 7U) / 8U;
 
-        if (s_eta_age < 10U) {
-            ++s_eta_age;             /* 方向变化后先稳定 5s（10 x 500ms） */
-        } else if (++s_eta_refresh >= 20U) {
-            s_eta_refresh = 0U;      /* 到刷新点：重算并把结果锁进 s_eta_minutes */
-            eta_min = s_eta_minutes;
-
+        if (s_eta_age < 10U) ++s_eta_age;     /* 状态稳定5s后首次估计 */
+        if (s_eta_age >= 10U && (s_eta_age == 10U || ++s_eta_refresh >= 20U)) {
+            float full, rem, energy, sec;
+            s_eta_age = 11U;
+            s_eta_refresh = 0U;
+            s_eta_bat_seconds = MAIN_ETA_INVALID;
             if (SW6306_CapacityLoadOK() && s_eta_power_mw >= 200U) {
                 full = SW6306_ReadMaxEnergy_mWh();
                 rem = SW6306_ReadRemainEnergy_mWh();
-                /* 合理性校验：满能量必须为正、剩余量在 [0, 105%满] 内，
-                 * 否则库仑计数据不可信（学习未完成/刚重初始化），宁可不显示。 */
                 if (full > 500.0f && rem >= 0.0f && rem <= full * 1.05f) {
                     energy = (mode == 1U) ? (full - rem) : rem;
-                    minutes = energy * 60.0f / (float)s_eta_power_mw;
-                    s_eta_minutes = (minutes >= 0.0f && minutes < 6000.0f) ?
-                                    (uint16_t)(minutes + 0.5f) : MAIN_ETA_INVALID;
-                } else {
-                    s_eta_minutes = MAIN_ETA_INVALID;
+                    sec = energy * 3600.0f / (float)s_eta_power_mw;
+                    if (sec >= 0.0f && sec < 360000.0f)
+                        s_eta_bat_seconds = (uint32_t)(sec + 0.5f);
                 }
-            } else {
-                s_eta_minutes = MAIN_ETA_INVALID;   /* 容量没读成功 → 别用旧值算 */
             }
-            eta_min = s_eta_minutes;
-        } else {
-            eta_min = s_eta_minutes;     /* 未到刷新点：沿用锁存结果 */
+            s_eta_bat_stamp = now;
         }
     }
 
-    /* ---------- 小电流模式倒计时覆盖（每 500ms 都算，不受限速门影响） ---------- */
-    if (mode == 2U) {
+    if (s_eta_bat_seconds != MAIN_ETA_INVALID) {
+        uint32_t elapsed = (uint32_t)(now - s_eta_bat_stamp) / 1000U;
+        best = elapsed < s_eta_bat_seconds ? s_eta_bat_seconds - elapsed : 0U;
+    }
+    /* LOW_CURRENT 即便没有足够的放电功率用于估算，仍显示超时倒计时。 */
+    if (SW6306_AlgoGetSpecialMode() == SW6306_SPECIAL_LOW_CURRENT) {
         uint32_t low_ms = SW6306_AlgoGetLowCurrentRemainingMs();
-        if (low_ms != 0U) {
-            /* 向上取整到分钟：剩 1ms 也显示 01 而不是 00，避免提前归零 */
-            uint16_t low_min = (uint16_t)((low_ms + 59999U) / 60000U);
-            if (low_min > 5999U) low_min = 5999U;
-            if (eta_min == MAIN_ETA_INVALID || low_min < eta_min) {
-                eta_min = low_min;
-            }
-        }
+        uint32_t low_seconds = (low_ms + 999U) / 1000U;
+        if (best == MAIN_ETA_INVALID || low_seconds < best) best = low_seconds;
     }
-
-    s_eta_minutes = eta_min;
+    s_eta_seconds = best;
 }
 
 /* ---------- 电池栏：图标填充条 + 百分号 ----------
@@ -365,12 +339,18 @@ static void update_clock_and_temp(void)
     }
     lv_label_set_text_static(s_clock, clock_buf);
 
-    if (s_eta_minutes == MAIN_ETA_INVALID) {
-        lv_label_set_text_static(s_eta, "-----");
+    if (s_eta_seconds == MAIN_ETA_INVALID) {
+        lv_label_set_text_static(s_eta, "--H--");
     } else {
-        mini_snprintf(eta_buf, sizeof(eta_buf), "%02luH%02lu",
-                      (unsigned long)(s_eta_minutes / 60U),
-                      (unsigned long)(s_eta_minutes % 60U));
+        if (s_eta_seconds < 3600U) {
+            mini_snprintf(eta_buf, sizeof(eta_buf), "%02luM%02lu",
+                          (unsigned long)(s_eta_seconds / 60U),
+                          (unsigned long)(s_eta_seconds % 60U));
+        } else {
+            mini_snprintf(eta_buf, sizeof(eta_buf), "%02luH%02lu",
+                          (unsigned long)(s_eta_seconds / 3600U),
+                          (unsigned long)((s_eta_seconds % 3600U) / 60U));
+        }
         lv_label_set_text_static(s_eta, eta_buf);
     }
 }
@@ -571,7 +551,7 @@ static void main_screen_create(void)
 
     /* ETA 状态机复位：首帧必然显示无效，等稳定 5s 后才有值 */
     s_eta_mode = 0U;
-    s_eta_minutes = MAIN_ETA_INVALID;
+    s_eta_bat_seconds = s_eta_seconds = MAIN_ETA_INVALID;
     s_eta_age = s_eta_refresh = 0U;
     main_refresh();                                   /* 立即画一帧，避免空白 */
     s_timer = lv_timer_create(main_timer_cb, MAIN_REFRESH_MS, NULL);
