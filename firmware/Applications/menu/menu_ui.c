@@ -15,7 +15,6 @@
  */
 #include <string.h>
 #include "mini_format.h"
-#include <math.h>
 #include "lvgl.h"
 #include "menu_ui.h"
 #include "menu_anim.h"
@@ -1014,11 +1013,11 @@ static void menu_ui_anim_tick(lv_timer_t *t)
     /* 角落 prev/next：旧上一/下一项水平出屏（30px/帧：先于滑入项覆盖角落前
      * 快速清空，全程可见不失效）+ 上上/下下一项屏外水平滑入（立即移动）。 */
     if (s_prev_out_x.active) {
-        menu_anim_step_limit(&s_prev_out_x, 30.0f);
+        menu_anim_step_limit(&s_prev_out_x, MENU_ANIM_MAX_STEP_PX);
         lv_obj_set_x(s_item_prev, (int32_t)s_prev_out_x.current);
     }
     if (s_next_out_x.active) {
-        menu_anim_step_limit(&s_next_out_x, 30.0f);
+        menu_anim_step_limit(&s_next_out_x, MENU_ANIM_MAX_STEP_PX);
         lv_obj_set_x(s_item_next, (int32_t)s_next_out_x.current);
     }
     if (s_prev_in_x.active) {
