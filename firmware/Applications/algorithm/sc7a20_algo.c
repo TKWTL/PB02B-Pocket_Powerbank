@@ -105,6 +105,7 @@ static void sc7a20_wake_routes_off(void)
     /* Mask IRQ routes before reprogramming threshold/modes. */
     SC7A20_ByteModify(SC7A20_CTRG_CTRL3,
         SC7A20_CTRL3_I1_AOI1 | SC7A20_CTRL3_I1_AOI2, 0U);
+    /* Clear AOI1 after each wake; next suspend re-arms after HPF settles. */
     SC7A20_ByteWrite(SC7A20_CTRG_INT1_CFG, 0U);
     SC7A20_ByteWrite(SC7A20_CTRG_INT2_CFG, 0U);
     /* Also restore normal-reset HPF mode before the next sleep session. */
@@ -149,10 +150,8 @@ void SC7A20_AlgoPmSuspend(void *ctx)
     if (SC7A20_AlgoConfig.motion_wake) {
         SC7A20_ByteWrite(SC7A20_CTRG_INT1_THS, SC7A20_MOTION_THS_REG);
         SC7A20_ByteWrite(SC7A20_CTRG_INT1_DURATION, SC7A20_MOTION_DUR_REG);
-        SC7A20_ByteWrite(SC7A20_CTRG_INT1_CFG, SC7A20_INTMODE_OR |
-            SC7A20_INT_CFG_XHIE | SC7A20_INT_CFG_XLIE |
-            SC7A20_INT_CFG_YHIE | SC7A20_INT_CFG_YLIE |
-            SC7A20_INT_CFG_ZHIE | SC7A20_INT_CFG_ZLIE);
+        /* Keep INT1_CFG=0 through HPF startup; re-enable just before
+         * connecting the output to PB8 in the sleep entry path. */
         /* Restore HPM=11 autoreset on interrupt. Prior HPM=00 plus a
          * resume REFERENCE read prevented even the first Motion wake. */
         SC7A20_ByteModify(SC7A20_CTRG_CTRL2,
@@ -172,7 +171,7 @@ void SC7A20_AlgoPmSuspend(void *ctx)
         routes |= SC7A20_CTRL3_I1_AOI2;
     }
 
-    /* Motion: 25Hz, 6LSB (96mg), duration 0, HPF autoreset.
+    /* Motion: 25Hz, 10LSB (160mg), duration 0, HPF autoreset.
      * Pickup threshold and 6D mode are unchanged. */
     SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
         SC7A20_ODR_25HZ | SC7A20_CTRL1_LPEN | SC7A20_DEFAULT_AXIS_EN);
@@ -185,6 +184,13 @@ void SC7A20_AlgoPmSuspend(void *ctx)
     vTaskDelay(pdMS_TO_TICKS(120U));
     SC7A20_ByteRead(SC7A20_STRG_INT1_SOURCE, &scratch);
     SC7A20_ByteRead(SC7A20_STRG_INT2_SOURCE, &scratch);
+    /* Write a fresh AOI1 config only after filter settling and source reads.
+     * Previously INT1_CFG was enabled before the 420+120ms delay. */
+    if (SC7A20_AlgoConfig.motion_wake)
+        SC7A20_ByteWrite(SC7A20_CTRG_INT1_CFG, SC7A20_INTMODE_OR |
+            SC7A20_INT_CFG_XHIE | SC7A20_INT_CFG_XLIE |
+            SC7A20_INT_CFG_YHIE | SC7A20_INT_CFG_YLIE |
+            SC7A20_INT_CFG_ZHIE | SC7A20_INT_CFG_ZLIE);
     SC7A20_ByteModify(SC7A20_CTRG_CTRL3,
         SC7A20_CTRL3_I1_AOI1 | SC7A20_CTRL3_I1_AOI2, routes);
 
@@ -230,6 +236,7 @@ void SC7A20_AlgoPmResume(void *ctx)
         /* HPM=11 resets the HPF on interrupt; do not read REFERENCE
          * during resume (the last trial regressed to no Motion wake). */
         ++sc7a20_wake_resume_count;
+        /* Clears INT1_CFG after wake, having captured its event source. */
         sc7a20_wake_routes_off(); /* Release shared PB8 before returning. */
         /* Power-down mode removed XYZ enable bits; restore all of them. */
         SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
