@@ -31,7 +31,7 @@ extern sc7a20_algo_config_t SC7A20_AlgoConfig;
  * 6D: return to 32LSB=512mg: the previous 54LSB value lost all observed
  * pickup events. Revisit after validating actual INT2_SOURCE responses.
  * Motion: 6LSB=96mg, zero duration catches single 25Hz samples.
- * HPM autoreset after an interrupt is experimental on SC7A20.
+ * HPM=00: reset HP filter by REFERENCE read on wake and before re-arm.
  * In low-power mode CTRL4.HR MUST be 0 (LPen=1/HR=1 is invalid). */
 #define SC7A20_PICKUP_THS_REG        32U
 #define SC7A20_PICKUP_DUR_REG         1U
@@ -52,6 +52,8 @@ void SC7A20_AlgoPmResume(void *ctx);
 extern volatile uint32_t sc7a20_wake_arm_fail_count;
 extern volatile uint32_t sc7a20_wake_arm_ok_count;
 extern volatile uint8_t sc7a20_wake_last_src1, sc7a20_wake_last_src2;
+extern volatile uint8_t sc7a20_wake_arm_ctrl2, sc7a20_wake_arm_ctrl3;
+extern volatile uint32_t sc7a20_wake_resume_count;
 
 #ifdef __cplusplus
 }
