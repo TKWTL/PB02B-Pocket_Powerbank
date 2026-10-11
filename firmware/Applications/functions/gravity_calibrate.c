@@ -105,13 +105,13 @@ static void cal_update_labels(void)
     } else if (s_saving != 0U) {
         lv_label_set_text_static(s_face, "SAVING");
     } else if (s_done[CAL_Z_NEG] && s_done[CAL_Z_POS]) {
-        lv_label_set_text_static(s_face, "FACE UOK DOK");
+        lv_label_set_text_static(s_face, "Z UOK DOK");
     } else if (s_done[CAL_Z_NEG]) {
-        lv_label_set_text_static(s_face, "FACE UOK D--");
+        lv_label_set_text_static(s_face, "Z UOK D--");
     } else if (s_done[CAL_Z_POS]) {
-        lv_label_set_text_static(s_face, "FACE U-- DOK");
+        lv_label_set_text_static(s_face, "Z U-- DOK");
     } else {
-        lv_label_set_text_static(s_face, "FACE U-- D--");
+        lv_label_set_text_static(s_face, "Z U-- D--");
     }
     lv_obj_invalidate(s_scr);
 }
@@ -270,9 +270,9 @@ static void gravity_calibrate_create(void)
     s_right = cal_make_label("RIGHT");
     lv_obj_align(s_right, LV_ALIGN_RIGHT_MID, -1, 0);
 
-    s_face = cal_make_label("FACE U-- D--");
-    /* FACE U-- D-- is 12 * 8px: 96px required. Clip, never wrap. */
-    lv_obj_set_size(s_face, 104, 14);
+    s_face = cal_make_label("Z U-- D--");
+    /* Z U-- D-- needs 9 * 8px = 72px; avoid LEFT/RIGHT overlap. */
+    lv_obj_set_size(s_face, 80, 14);
     lv_obj_set_style_text_align(s_face, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_face, LV_ALIGN_CENTER, 0, 0);
 
