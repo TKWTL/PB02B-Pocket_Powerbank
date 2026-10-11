@@ -49,7 +49,7 @@ static lv_obj_t *make_label(int32_t x, int32_t y, int32_t w, lv_text_align_t ali
     lv_obj_set_style_pad_all(lbl, 0, 0);
     lv_obj_set_style_text_font(lbl, menu_font_main(), 0);
     lv_obj_set_style_text_align(lbl, align, 0);
-    lv_label_set_long_mode(lbl, LV_LABEL_LONG_CLIP);
+    lv_label_set_long_mode(lbl, LV_LABEL_LONG_MODE_CLIP);
     lv_obj_set_size(lbl, w, 14);
     lv_obj_set_pos(lbl, x, y);
     return lbl;
@@ -187,7 +187,7 @@ static void update_clock_and_temp(void)
 
     /* Rounded -10.0C and below omit decimals; all strings fit 44px.
      * Degree glyph extends above ordinary capital/digit pixels; the
-     * temperature label alone starts at y=0 instead of y=-1. */
+     * temperature glyph shares the fixed top row. */
     if (t10 <= -100 || t10 >= 100) {
         int32_t integer = (t10 >= 0) ? (t10 + 5) / 10 : -((-t10 + 5) / 10);
         mini_snprintf(temp_buf, sizeof(temp_buf), "%ld°C", (long)integer);
@@ -297,8 +297,8 @@ static void main_screen_create(void)
     s_bat_power = make_label(72,  MAIN_ROW_MID, 40, LV_TEXT_ALIGN_CENTER);
     s_bat_volt  = make_label(72,  MAIN_ROW_BOT, 40, LV_TEXT_ALIGN_CENTER);
 
-    /* Degree glyph occupies top glyph rows, so keep its top pixel onscreen. */
-    s_temp      = make_label(114, 0,            44, LV_TEXT_ALIGN_RIGHT);
+    /* Use the common top-row baseline; degree uses the spare margin. */
+    s_temp      = make_label(114, MAIN_ROW_TOP, 44, LV_TEXT_ALIGN_RIGHT);
     s_clock     = make_label(118, MAIN_ROW_MID, 40, LV_TEXT_ALIGN_RIGHT);
     s_eta       = make_label(118, MAIN_ROW_BOT, 40, LV_TEXT_ALIGN_RIGHT);
     lv_obj_set_style_text_color(s_bat_power, lv_color_hex(0xD6DCE3), 0);
