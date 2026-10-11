@@ -201,21 +201,36 @@ void SC7A20_AlgoPmSuspend(void *ctx)
     SC7A20_ByteModify(SC7A20_CTRG_CTRL3,
         SC7A20_CTRL3_I1_AOI1 | SC7A20_CTRL3_I1_AOI2, routes);
 
-    /* Preserve brief wake pulses; disarm only if INT1 remains asserted
-     * for three consecutive checks. */
+    /* At 25Hz the 40ms IRQ period is exactly 1/3 of the old 120ms
+     * guard interval. Use off-phase polling; do not mistake periodic
+     * low pulses for a continuously asserted PB8 signal. */
     {
         uint8_t low_streak = 0U;
-        for (uint8_t i = 0U; i < 3U; ++i) {
-            vTaskDelay(pdMS_TO_TICKS(120U));
-            if (gpio_input_data_bit_read(GPIOB, GPIO_PINS_8) == RESET)
-                ++low_streak;
-            else
+        for (uint8_t i = 0U; i < 30U; ++i) {
+            vTaskDelay(pdMS_TO_TICKS(13U));
+            if (gpio_input_data_bit_read(GPIOB, GPIO_PINS_8) == RESET) {
+                if (++low_streak >= 20U) break;
+            } else {
                 low_streak = 0U;
+            }
         }
-        if (low_streak == 3U) {
-            ++sc7a20_wake_arm_fail_count;
-            sc7a20_wake_routes_off();
-            SC7A20_LowPowerSet();
+        if (low_streak >= 20U) {
+            volatile uint8_t src1 = 0U, src2 = 0U;
+            SC7A20_ByteRead(SC7A20_STRG_INT1_SOURCE, &src1);
+            SC7A20_ByteRead(SC7A20_STRG_INT2_SOURCE, &src2);
+            vTaskDelay(pdMS_TO_TICKS(13U));
+#if SC7A20_WAKE_SERIAL_DEBUG
+            USART_Printf("[SCDBG] LOW S1=%02X S2=%02X PB%u\r\n",
+                (unsigned int)src1, (unsigned int)src2,
+                (unsigned int)(gpio_input_data_bit_read(GPIOB, GPIO_PINS_8) == SET));
+#endif
+            if (gpio_input_data_bit_read(GPIOB, GPIO_PINS_8) == RESET) {
+                ++sc7a20_wake_arm_fail_count;
+                sc7a20_wake_routes_off();
+                SC7A20_LowPowerSet();
+            } else {
+                ++sc7a20_wake_arm_ok_count;
+            }
         } else {
             ++sc7a20_wake_arm_ok_count;
         }
