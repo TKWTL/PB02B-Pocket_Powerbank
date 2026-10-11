@@ -210,13 +210,15 @@ static void wled_take_ui_requests(void)
         /* SOS shares WLED's fake-A1 state machine. WLED -> SOS makes an
          * OFF PWM edge, but returns s_level to ON in this same 10ms tick:
          * the fake A1 stays owned with no remove/reinsert transient.
+         * Use the normal brightness setter for SOS ON to retain its 0%-SOC
+         * and NTC shutdown checks; it still feeds the same A1 meter policy.
          * SOS -> OFF leaves s_level=0, so the existing 200ms post-off
          * cleanup releases A1 once PWM reaches zero. */
         wled_set_brightness(0U);
         s_sos_active = (sos_req == 1U) ? 1U : 0U;
         s_sos_elapsed_ms = 0U;
         s_sos_off_tick = 1U;
-        if (s_sos_active != 0U) s_level = WLED_BRIGHTNESS_MAX;
+        if (s_sos_active != 0U) wled_set_brightness(WLED_BRIGHTNESS_MAX);
         return;
     }
     if (s_sos_active != 0U) return;
