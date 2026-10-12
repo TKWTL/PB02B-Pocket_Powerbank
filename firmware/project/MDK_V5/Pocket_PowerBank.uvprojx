@@ -339,7 +339,7 @@
               <MiscControls></MiscControls>
               <Define>AT32F423KCU7_4, USE_STDPERIPH_DRIVER, AT_START_F423_V1, LV_LVGL_H_INCLUDE_SIMPLE, LV_CONF_INCLUDE_SIMPLE</Define>
               <Undefine></Undefine>
-              <IncludePath>..\..\libraries\drivers\inc;..\..\libraries\cmsis\cm4\core_support;..\..\libraries\cmsis\cm4\device_support;..\inc;..\..\Bootstrap\inc;..\..\Drivers;..\..\Drivers\GC9D01;..\..\Drivers\SW6306;..\..\Drivers\SC7A20;..\..\Drivers\SD3078;..\..\Applications\LVGL;..\..\Applications\LVGL\porting;..\..\Applications\LVGL\src;..\..\Applications\LVGL\src\tick;..\..\Applications;..\..\Applications\menu;..\..\Applications\functions;..\..\Drivers\Buttons;..\..\Drivers\WLED;..\..\Applications\framework;../../middlewares/freertos/source/include;../../middlewares/freertos/source/portable/memmang;../../middlewares/freertos/source/portable/GCC/ARM_CM4F;</IncludePath>
+              <IncludePath>..\..\libraries\drivers\inc;..\..\libraries\cmsis\cm4\core_support;..\..\libraries\cmsis\cm4\device_support;..\inc;..\..\Bootstrap\inc;..\..\Drivers;..\..\Drivers\GC9D01;..\..\Drivers\SW6306;..\..\Drivers\SC7A20;..\..\Drivers\SD3078;..\..\Applications\LVGL;..\..\Applications\LVGL\porting;..\..\Applications\LVGL\src;..\..\Applications\LVGL\src\tick;..\..\Applications;..\..\Applications\menu;..\..\Applications\functions;..\..\Drivers\Buttons;..\..\Drivers\WLED;..\..\Applications\framework;../../middlewares/freertos/source/include;../../middlewares/freertos/source/portable/memmang;../../middlewares/freertos/source/portable/GCC/ARM_CM4F</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
