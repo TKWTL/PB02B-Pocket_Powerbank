@@ -12,6 +12,7 @@ extern "C" {
 #define PM_BLOCK_CALIBRATION    0x04U
 #define PM_BLOCK_LOW_CURRENT    0x08U /* 小电流模式阻止休眠 */
 #define PM_BLOCK_DINO           0x10U /* 小恐龙游戏运行期间阻止休眠 */
+#define PM_BLOCK_LEVELER        0x20U /* 水平仪运行期间阻止休眠 */
 
 void pm_api_refresh_idle(void);
 void pm_api_force_sleep(void);          /* 手动休眠：立即进入休眠流程 */

@@ -6,6 +6,7 @@
 #include "leveler.h"
 #include "functions.h"
 #include "applications.h"  /* 统一包含算法、驱动的已验证工程路径 */
+#include "framework/pm_api.h" /* 水平仪运行期间禁止自动休眠 */
 #include <math.h>
 #include <string.h>
 
@@ -13,6 +14,7 @@
 #define LEVEL_H           40
 #define LEVEL_PIXELS      (LEVEL_W * LEVEL_H) /* A8: 3520字节；绘制器已支持A8 */
 #define LEVEL_PERIOD_MS   40U            /* UI 25FPS，LOAD 25Hz */
+#define LEVEL_R           9              /* 铅锤双圆半径 */
 
 static lv_obj_t *s_screen, *s_canvas, *s_label[4], *s_degree;
 static lv_timer_t *s_timer;
@@ -21,48 +23,74 @@ static lv_timer_t *s_timer;
 static uint32_t s_canvas_buf[(LEVEL_PIXELS + 3) / 4];
 static lv_draw_buf_t s_canvas_draw_buf;
 static char s_text[4][9] = {"X 0.00g", "Y 0.00g", "Z 0.00g", "  0.00"};
-static float s_ax, s_ay, s_az, s_zero_deg;
+static float s_ax, s_ay, s_az;
 static uint32_t s_sample_seq;
 static uint8_t s_sample_valid, s_mode;
-/* 0:沿X的横线；1:沿Y的竖线；2:Z轴平放双圆 */
+/* 0: X方向地平线；1: Y方向地平线；2: Z轴铅锤双圆
+ * X/Y/Z使用实测重力向量，允许在45°切换视图。 */
 static const float s_to_deg = 57.2957795f;
 
-/* 直接写A8像素，避免lv_canvas_set_px每个像素都触发invalidate。 */
+/* 直接写A8像素：每帧先清零再重绘，避免透明A8留下上一帧伪影。 */
 static void pixel(uint8_t x, uint8_t y)
 {
     ((uint8_t *)s_canvas_buf)[(uint16_t)y * LEVEL_W + x] = 255U;
 }
-
-static void render_graphics(float xg, float yg, float zg, float angle)
+static void tick_pixel(uint8_t x, uint8_t y)
 {
-    int16_t x, y, circle_x, circle_y;
-    (void)zg;
-    (void)angle;
+    /* 刻线与所在区域反色：即使覆盖白色地面也能看清。 */
+    ((uint8_t *)s_canvas_buf)[(uint16_t)y * LEVEL_W + x] ^= 255U;
+}
+
+/* 横向地平线：重力投影决定旋转方向（不再叠加一遍显示角），
+ * Z分量决定线心离屏幕中心的距离：抬头/低头时线心上下移动。
+ * X=-1g → 上黑下白；Y=+1g → 左白右黑。 */
+static void render_graphics(float xg, float yg, float zg, float plumb_deg)
+{
+    int16_t x, y;
+    float h = sqrtf(xg * xg + yg * yg);
+    /* 旧帧内容全部丢弃；包括双圆相交区域和移动中的地平线。 */
     memset(s_canvas_buf, 0, sizeof(s_canvas_buf));
     if (s_mode == 2U) {
-        /* 底部固定圆与重力偏移圆；像素异或形成黑色相交透镜。 */
-        circle_x = 50 + (int16_t)(xg * 15.0f);
-        circle_y = 25 - (int16_t)(yg * 10.0f);
+        /* 45°时双圆近似相切；靠近Z轴时两圆沿倾斜方向渐渐重合。
+         * 完全重合时使用异或着色，重合部分变黑。 */
+        float gap = plumb_deg * (2.0f * LEVEL_R) / 45.0f;
+        float dx = 0.0f, dy = 0.0f;
+        int16_t x1, y1, x2, y2;
+        if (gap > 2.0f * LEVEL_R) gap = 2.0f * LEVEL_R;
+        if (h > 0.0001f) {
+            dx = gap * xg / h;
+            dy = gap * yg / h;
+        }
+        x1 = (int16_t)(44.0f - dx * 0.5f);
+        y1 = (int16_t)(20.0f - dy * 0.5f);
+        x2 = (int16_t)(44.0f + dx * 0.5f);
+        y2 = (int16_t)(20.0f + dy * 0.5f);
         for (y = 0; y < LEVEL_H; ++y) {
             for (x = 0; x < LEVEL_W; ++x) {
-                int32_t a = (x - 33) * (x - 33) + (y - 25) * (y - 25);
-                int32_t b = (x - circle_x) * (x - circle_x) +
-                            (y - circle_y) * (y - circle_y);
-                if ((a <= 144) != (b <= 144))
+                int32_t a = (x - x1) * (x - x1) + (y - y1) * (y - y1);
+                int32_t b = (x - x2) * (x - x2) + (y - y2) * (y - y2);
+                if ((a <= LEVEL_R * LEVEL_R) != (b <= LEVEL_R * LEVEL_R))
                     pixel((uint8_t)x, (uint8_t)y);
             }
         }
-    } else {
-        /* X=-1g：黑上白下的水平地平线；Y=+1g：左白右黑的
-         * 竖直地平线，两者角度都表示水平方向偏差（非铅锤角）。 */
+    } else if (h > 0.0001f) {
+        /* 归一化投影方向：X→Y轴旋转只影响一次画面角度。
+         * 垂直屏面倾角zg控制地平线偏移；不再强制经过屏幕中心。 */
+        float nx = -yg / h, ny = -xg / h;
+        float offset = 17.0f * zg;
         for (y = 0; y < LEVEL_H; ++y) {
             for (x = 0; x < LEVEL_W; ++x) {
-                float f = -yg * (x - 43.5f) - xg * (y - 19.5f);
+                float f = nx * (x - 43.5f) + ny * (y - 19.5f) + offset;
                 if (f >= 0.0f) pixel((uint8_t)x, (uint8_t)y);
             }
         }
+        /* 画面两端固定短划线，与地平线分离，用于识别水平位置。 */
+        for (x = 4; x <= 12; ++x) tick_pixel((uint8_t)x, 20U);
+        for (x = LEVEL_W - 13; x < LEVEL_W - 4; ++x)
+            tick_pixel((uint8_t)x, 20U);
     }
-    lv_obj_invalidate(s_canvas);
+    /* 同帧全区域失效重绘：A8透明边缘、交叠圆与刻线不会残留。 */
+    lv_obj_invalidate(s_screen);
 }
 
 /* 格式固定：X-1.00g / Y 0.00g / Z 0.00g；统一小数点列。 */
@@ -100,7 +128,7 @@ static void print_angle(float angle)
 
 static void level_tick(lv_timer_t *timer)
 {
-    float x, y, z, angle, target;
+    float x, y, z, angle, h;
     uint32_t seq;
     (void)timer;
     if (!SC7A20_AlgoLevelerGet(&x, &y, &z, &seq)) return;
@@ -115,46 +143,39 @@ static void level_tick(lv_timer_t *timer)
     }
     x = s_ax * 0.001f; y = s_ay * 0.001f; z = s_az * 0.001f;
 
-    /* Z与侧立之间有滞回；X/Y模式也加滞回防止45°抖动。 */
-    if (s_mode == 2U) {
-        if (fabsf(z) < 0.65f)
-            s_mode = fabsf(y) > fabsf(x) ? 1U : 0U;
-    } else if (fabsf(z) > 0.80f) {
+    /* Z与屏幕平面重力分量等大即45°：水平地平线↔铅锤双圆。
+     * 只用同一组重力分量求方向与角度，不随X/Y切换叠加角度。 */
+    h = sqrtf(x * x + y * y);
+    if (fabsf(z) >= h) {
         s_mode = 2U;
-    } else if (s_mode == 0U && fabsf(y) > fabsf(x) + 0.12f) {
-        s_mode = 1U;
-    } else if (s_mode == 1U && fabsf(x) > fabsf(y) + 0.12f) {
-        s_mode = 0U;
-    }
-
-    if (s_mode == 2U) {
-        angle = atan2f(sqrtf(x*x + y*y), fabsf(z)) * s_to_deg;
-    } else if (s_mode == 0U) {
-        angle = atan2f(fabsf(y), fabsf(x)) * s_to_deg; /* X横向水平偏差 */
+        angle = atan2f(h, fabsf(z)) * s_to_deg; /* Z轴铅锤偏差 */
     } else {
-        angle = atan2f(fabsf(x), fabsf(y)) * s_to_deg; /* Y竖向地平线：水平偏差 */
+        s_mode = fabsf(y) > fabsf(x) ? 1U : 0U;
+        /* 水平偏差在X/Y两个正交基准下取最近方向，避免累计成双倍角。 */
+        angle = (s_mode == 0U ? atan2f(fabsf(y), fabsf(x)) :
+                 atan2f(fabsf(x), fabsf(y))) * s_to_deg;
     }
-    target = angle - s_zero_deg;
-    if (target < 0.0f) target = -target;
-    render_graphics(x, y, z, target);
+    render_graphics(x, y, z, angle);
     print_g(0U, 'X', x); print_g(1U, 'Y', y); print_g(2U, 'Z', z);
-    print_angle(target);
+    print_angle(angle);
     /* 角度符号始终白色，不随平衡状态变色。 */
 }
 
-/* AUTO睡眠依旧有效：应用不设置PM_BLOCK。模式标志仅请求load_task换ODR；
- * PM suspend固定25Hz低功耗唤醒监控或ODR=0，PM resume恢复50Hz。 */
+/* 水平仪在运行期间持续采样、禁止进入DeepSleep；
+ * 进入/退出仍通过load_task切换50Hz/25Hz ODR，UI不直接执行I2C。 */
 static void level_create(void)
 {
     uint8_t i;
     if (s_screen) return;
-    s_sample_valid = 0U; s_sample_seq = 0U; s_zero_deg = 0.0f;
+    s_sample_valid = 0U; s_sample_seq = 0U;
     s_mode = 0U;
     /* 重入不沿用上一次的临时数值，等待load_task刷新三轴镜像。 */
     memcpy(s_text[0], "X 0.00g", 8);
     memcpy(s_text[1], "Y 0.00g", 8);
     memcpy(s_text[2], "Z 0.00g", 8);
     memcpy(s_text[3], "  0.00", 7);
+    pm_api_set_sleep_block(PM_BLOCK_LEVELER, 1U);
+    pm_api_refresh_idle();
     SC7A20_AlgoLevelerSet(1U);
     ui_orientation_lock_set(1U);
     s_screen = lv_obj_create(NULL);
@@ -212,19 +233,13 @@ static void level_activate(void)
 }
 static void level_run(app_action_t action)
 {
-    if (action == APP_ACTION_UP) menu_app_exit();
-    else if (action == APP_ACTION_ENTER) {
-        /* CONF：以当前方向相对调零；MENU仍为退出。 */
-        float x = s_ax*0.001f, y = s_ay*0.001f, z = s_az*0.001f;
-        if (!s_sample_valid) return;
-        if (s_mode == 2U) s_zero_deg = atan2f(sqrtf(x*x+y*y),fabsf(z))*s_to_deg;
-        else if (s_mode == 0U) s_zero_deg = atan2f(fabsf(y),fabsf(x))*s_to_deg;
-        else s_zero_deg = atan2f(fabsf(x),fabsf(y))*s_to_deg;
-    }
+    /* MENU、NEXT、CONF以及三键双击/长按均只执行退出，不再归零。 */
+    if (action != APP_ACTION_NONE) menu_app_exit();
 }
 static void level_destroy(void)
 {
     SC7A20_AlgoLevelerSet(0U);
+    pm_api_set_sleep_block(PM_BLOCK_LEVELER, 0U);
     if (s_timer) { lv_timer_delete(s_timer); s_timer = NULL; }
     if (s_screen) { lv_obj_delete(s_screen); s_screen = NULL; }
     s_canvas = s_degree = NULL;
