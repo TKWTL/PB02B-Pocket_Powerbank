@@ -580,10 +580,12 @@ static void main_screen_create(void)
     lv_obj_set_style_image_recolor_opa(s_bat_img, LV_OPA_COVER, 0);
     lv_obj_set_pos(s_bat_img, MAIN_BAT_X, 0);
 
+    /* 百分号压在最上层：电池图标已改为实心图，故用黑色文字，
+     * 叠在彩色电量条/实心电池图上形成对比。 */
     s_pct = lv_label_create(s_bat_img);
     lv_obj_set_style_pad_all(s_pct, 0, 0);
     lv_obj_set_style_text_font(s_pct, menu_font_main(), 0);
-    lv_obj_set_style_text_color(s_pct, lv_color_white(), 0);
+    lv_obj_set_style_text_color(s_pct, lv_color_hex(0x000000), 0);
     lv_obj_align(s_pct, LV_ALIGN_CENTER, 1, 0);
 
     /* ETA 状态机复位：首帧必然显示无效，等稳定 5s 后才有值 */
