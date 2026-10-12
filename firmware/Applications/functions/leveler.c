@@ -1,7 +1,7 @@
 /* leveler.c - iOS7风格水平仪，160x40：左88px图形，右64px数据。
  * SC7A20仅由load_task读I2C，UI消费经六面校准的镜像。
  * X≈-1g：横地平线；Y≈+1g：左白右黑的竖地平线；
- * Z≈-1g：双圆交叠（重叠区域黑色），水平时绿色高亮。
+ * Z≈-1g：白色双圆交叠（重叠部分为黑），全程仅使用黑白。
  */
 #include "leveler.h"
 #include "functions.h"
@@ -11,16 +11,15 @@
 
 #define LEVEL_W           88
 #define LEVEL_H           40
-#define LEVEL_STRIDE      (LEVEL_W / 4)  /* 2bpp，一行22字节 */
-#define LEVEL_PIXELS      (LEVEL_STRIDE * LEVEL_H)
-#define LEVEL_BUF_BYTES   (16 + LEVEL_PIXELS)
+#define LEVEL_PIXELS      (LEVEL_W * LEVEL_H) /* A8: 3520字节；绘制器已支持A8 */
 #define LEVEL_PERIOD_MS   40U            /* UI 25FPS，LOAD 25Hz */
 
 static lv_obj_t *s_screen, *s_canvas, *s_label[4], *s_degree;
 static lv_timer_t *s_timer;
-/* I2调色板16字节 + 880字节像素；4字节自然对齐。 */
-static uint32_t s_canvas_buf[(LEVEL_BUF_BYTES + 3) / 4];
-static lv_draw_buf_t s_canvas_draw_buf; /* 指明包含I2 palette的完整字节数 */
+/* 原I2索引画布在当前LVGL软件渲染配置下未启用，故左侧始终全黑。
+ * 改用已在小恐龙贴图上验证的A8透明度格式，背景黑、255为白。 */
+static uint32_t s_canvas_buf[(LEVEL_PIXELS + 3) / 4];
+static lv_draw_buf_t s_canvas_draw_buf;
 static char s_text[4][9] = {"X 0.00g", "Y 0.00g", "Z 0.00g", "  0.00"};
 static float s_ax, s_ay, s_az, s_zero_deg;
 static uint32_t s_sample_seq;
@@ -28,28 +27,18 @@ static uint8_t s_sample_valid, s_mode;
 /* 0:沿X的横线；1:沿Y的竖线；2:Z轴平放双圆 */
 static const float s_to_deg = 57.2957795f;
 
-static void palette_set(uint8_t index, uint8_t r, uint8_t g, uint8_t b)
+/* 直接写A8像素，避免lv_canvas_set_px每个像素都触发invalidate。 */
+static void pixel(uint8_t x, uint8_t y)
 {
-    lv_color32_t c;
-    c.red = r; c.green = g; c.blue = b; c.alpha = 255;
-    lv_canvas_set_palette(s_canvas, index, c);
-}
-
-/* 直接写入 I2 索引缓冲，不调用会逐点触发 invalidate 的canvas_set_px。 */
-static void pixel(uint8_t x, uint8_t y, uint8_t col)
-{
-    uint8_t *p = (uint8_t *)s_canvas_buf + 16 + (uint16_t)y * LEVEL_STRIDE + (x >> 2);
-    uint8_t shift = (uint8_t)(6U - 2U * (x & 3U));
-    *p = (uint8_t)((*p & ~(3U << shift)) | (col << shift));
+    ((uint8_t *)s_canvas_buf)[(uint16_t)y * LEVEL_W + x] = 255U;
 }
 
 static void render_graphics(float xg, float yg, float zg, float angle)
 {
     int16_t x, y, circle_x, circle_y;
-    uint8_t balanced = (angle < 2.0f);
-    uint8_t color;
     (void)zg;
-    memset((uint8_t *)s_canvas_buf + 16, 0, LEVEL_PIXELS);
+    (void)angle;
+    memset(s_canvas_buf, 0, sizeof(s_canvas_buf));
     if (s_mode == 2U) {
         /* 底部固定圆与重力偏移圆；像素异或形成黑色相交透镜。 */
         circle_x = 50 + (int16_t)(xg * 15.0f);
@@ -60,16 +49,16 @@ static void render_graphics(float xg, float yg, float zg, float angle)
                 int32_t b = (x - circle_x) * (x - circle_x) +
                             (y - circle_y) * (y - circle_y);
                 if ((a <= 144) != (b <= 144))
-                    pixel((uint8_t)x, (uint8_t)y, balanced ? 2U : 1U);
+                    pixel((uint8_t)x, (uint8_t)y);
             }
         }
     } else {
-        /* 法向量 -Y,-X；X=-1g时下白上黑，Y=+1g时左白右黑。 */
+        /* X=-1g：黑上白下的水平地平线；Y=+1g：左白右黑的
+         * 竖直地平线，两者角度都表示水平方向偏差（非铅锤角）。 */
         for (y = 0; y < LEVEL_H; ++y) {
             for (x = 0; x < LEVEL_W; ++x) {
                 float f = -yg * (x - 43.5f) - xg * (y - 19.5f);
-                color = (f >= 0.0f) ? (balanced ? 2U : 1U) : 0U;
-                pixel((uint8_t)x, (uint8_t)y, color);
+                if (f >= 0.0f) pixel((uint8_t)x, (uint8_t)y);
             }
         }
     }
@@ -141,17 +130,16 @@ static void level_tick(lv_timer_t *timer)
     if (s_mode == 2U) {
         angle = atan2f(sqrtf(x*x + y*y), fabsf(z)) * s_to_deg;
     } else if (s_mode == 0U) {
-        angle = atan2f(fabsf(y), fabsf(x)) * s_to_deg;
+        angle = atan2f(fabsf(y), fabsf(x)) * s_to_deg; /* X横向水平偏差 */
     } else {
-        angle = atan2f(fabsf(x), fabsf(y)) * s_to_deg;
+        angle = atan2f(fabsf(x), fabsf(y)) * s_to_deg; /* Y竖向地平线：水平偏差 */
     }
     target = angle - s_zero_deg;
     if (target < 0.0f) target = -target;
     render_graphics(x, y, z, target);
     print_g(0U, 'X', x); print_g(1U, 'Y', y); print_g(2U, 'Z', z);
     print_angle(target);
-    lv_obj_set_style_border_color(s_degree,
-        lv_color_hex(target < 2.0f ? 0x00D060 : 0xFFFFFF), 0);
+    /* 角度符号始终白色，不随平衡状态变色。 */
 }
 
 /* AUTO睡眠依旧有效：应用不设置PM_BLOCK。模式标志仅请求load_task换ODR；
@@ -179,16 +167,14 @@ static void level_create(void)
     lv_obj_set_scrollbar_mode(s_screen, LV_SCROLLBAR_MODE_OFF);
 
     s_canvas = lv_canvas_create(s_screen);
-    /* 本仓库LVGL的canvas_set_buffer将data_size设为stride×height，
-     * 漏算16字节调色板；用显式draw_buf传入完整896字节避免尾行越界。 */
-    lv_draw_buf_init(&s_canvas_draw_buf, LEVEL_W, LEVEL_H, LV_COLOR_FORMAT_I2,
-                     LEVEL_STRIDE, s_canvas_buf, sizeof(s_canvas_buf));
+    /* 直接用A8源像素（尺寸88x40），配白色image_recolor。
+     * A8=0透出黑色底板，A8=255显示纯白，不需要调色板。 */
+    lv_draw_buf_init(&s_canvas_draw_buf, LEVEL_W, LEVEL_H, LV_COLOR_FORMAT_A8,
+                     LEVEL_W, s_canvas_buf, sizeof(s_canvas_buf));
     lv_canvas_set_draw_buf(s_canvas, &s_canvas_draw_buf);
+    lv_obj_set_style_image_recolor(s_canvas, lv_color_white(), 0);
+    lv_obj_set_style_image_recolor_opa(s_canvas, LV_OPA_COVER, 0);
     lv_obj_set_pos(s_canvas, 0, 0);
-    palette_set(0U, 0, 0, 0);
-    palette_set(1U, 255, 255, 255);
-    palette_set(2U, 0, 208, 96);
-    palette_set(3U, 100, 100, 100);
 
     /* 数字区固定黑底，左右图形不侵入；4×9px行高适配40px屏。 */
     for (i = 0U; i < 4U; ++i) {
