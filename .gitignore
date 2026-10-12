@@ -53,3 +53,8 @@ JLinkLog.txt
 
 hardware/
 docs/
+# 开发期脚本/文档：不入库（ATWP 或工具可能重新生成）
+I2C_WORKBENCH.md
+restore_workbench_project.py
+firmware/tools/
+firmware/Applications/menu/tools/
