@@ -254,20 +254,23 @@ static void update_battery(void)
     }
     pct = (uint8_t)(s_bar_tenth / 10U);
     fill = 38 * (int32_t)pct / 100;
-    body = fill < 35 ? fill : 35;
-    tab = fill > 35 ? fill - 35 : 0;
+    /* 主体宽度上限 37，而不是 38：实心图案里主体占局部 x=3..38（36px），
+     * 端部占 x=0..2。上限取 37 并让条右缘对齐 MAIN_BAT_X+39（图案 x=39），
+     * 条左端即落到 MAIN_BAT_X+3（图案 x=3），正好覆盖主体起始处。 */
+    body = fill < 37 ? fill : 37;
+    tab = fill > 37 ? fill - 37 : 0;
 
-    /* 电量条尺寸按实心电池位图适配：主体实心区竖向为 y0..y13（14px）。
-     * 条高取 10px 并居中到 y2..y11，上下各留 2px 留白——
-     * 原来的 12px 高（y1..y12）只留 1px，贴着实心边缘显得发闷。
-     * 端部小条（tab）用同样高度与 y，满格时与主体齐平、无台阶。 */
-    lv_obj_set_size(s_bar, body, 10);
-    lv_obj_set_pos(s_bar, MAIN_BAT_X + 39 - body, 2);
+    /* 电量条尺寸按实心电池位图适配：
+     *  - 高度 12（y1..y12）：主体实心区为 y0..y13，条上下各内缩 1px，
+     *    使上下沿都落在图标实心区内、不露出边界。
+     *  - 端部小条（tab）同高同 y，满格时与主体齐平、无台阶。 */
+    lv_obj_set_size(s_bar, body, 12);
+    lv_obj_set_pos(s_bar, MAIN_BAT_X + 39 - body, 1);
     lv_obj_set_style_bg_color(s_bar, lv_color_hex(
         (pct >= 30U) ? 0x00F008 : (pct >= 10U) ? 0xE8DC00 : 0xF80000), 0);
     if (tab > 0) {
-        lv_obj_set_size(s_tab, tab, 10);
-        lv_obj_set_pos(s_tab, MAIN_BAT_X + 4 - tab, 2);
+        lv_obj_set_size(s_tab, tab, 12);
+        lv_obj_set_pos(s_tab, MAIN_BAT_X + 4 - tab, 1);
         lv_obj_remove_flag(s_tab, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_tab, LV_OBJ_FLAG_HIDDEN);
@@ -558,12 +561,12 @@ static void main_screen_create(void)
 
     /* ---------- 电池栏图层顺序（后建者在上）----------
      *   先建 实心图标 s_bat_img
-     *   再建 百分号 s_pct      （独立对象，不再是图标的子对象）
-     *   最后 电量条 s_bar / 端部条 s_tab
-     * 这样电量条盖在实心图标之上可见。
+     *   再建 电量条 s_bar / 端部条 s_tab
+     *   最后 百分号 s_pct      ← 必须最后建，否则会被电量条盖住
+     * 这样自上而下是：百分号 > 电量条 > 实心图标。
      * 【注意】s_pct 特意从 s_bat_img 子对象解绑：若仍作子对象，它会随图标
      * 一起被电量条压住而看不见。代价是它不再自动跟随图标移动，位置改为
-     * 按 MAIN_BAT_X 手工对齐（见下方 align）。 */
+     * 按 MAIN_BAT_X 手工对齐。 */
 
     /* 电池实心图标（40x14 A8） */
     s_bat_img = lv_image_create(s_scr);
@@ -572,10 +575,32 @@ static void main_screen_create(void)
     lv_obj_set_style_image_recolor_opa(s_bat_img, LV_OPA_COVER, 0);
     lv_obj_set_pos(s_bat_img, MAIN_BAT_X, 0);
 
-    /* 百分号：黑色文字压在最上层的电量条之上。
+    /* 电量填充条：初始宽 0、右对齐到主体右端，
+     * 实际尺寸每次刷新由 update_battery() 设定。
+     * 高度 12（y1..y12）比图标主体 y0..y13 各内缩 1px，
+     * 使电量条上下沿都被图标实心区压住、不露出边界。 */
+    s_bar = lv_obj_create(s_scr);
+    lv_obj_set_style_border_width(s_bar, 0, 0);
+    lv_obj_set_style_radius(s_bar, 0, 0);
+    lv_obj_set_style_pad_all(s_bar, 0, 0);
+    lv_obj_remove_flag(s_bar, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(s_bar, 0, 12);
+    lv_obj_set_pos(s_bar, MAIN_BAT_X + 39, 1);
+
+    /* 左侧小凸起（端部）：只在电量很高（fill > 35）时才点亮 */
+    s_tab = lv_obj_create(s_scr);
+    lv_obj_set_style_border_width(s_tab, 0, 0);
+    lv_obj_set_style_radius(s_tab, 0, 0);
+    lv_obj_set_style_pad_all(s_tab, 0, 0);
+    lv_obj_remove_flag(s_tab, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(s_tab, 0, 12);
+    lv_obj_set_pos(s_tab, MAIN_BAT_X + 3, 1);
+    lv_obj_set_style_bg_color(s_tab, lv_color_hex(0x00F008), 0);
+    lv_obj_add_flag(s_tab, LV_OBJ_FLAG_HIDDEN);   /* 默认隐藏，由刷新逻辑按需显示 */
+
+    /* 百分号：最后创建 => 位于最上层，不会被电量条盖住。
      * 独立对象，水平居中于图标主体（宽 40）；字体行盒 14px 而墨迹只占
-     * 第 2..11 行，故 y 取 1 使墨迹落在 y3..y12，在 14px 高的图标上垂直居中
-     * （y=-1 会让墨迹落到 y1..y10，视觉偏上）。 */
+     * 第 2..11 行，故 y 取 1 使墨迹落在 y3..y12，在 14px 高的图标上垂直居中。 */
     s_pct = lv_label_create(s_scr);
     lv_obj_set_style_pad_all(s_pct, 0, 0);
     lv_obj_set_style_text_font(s_pct, menu_font_main(), 0);
@@ -583,27 +608,6 @@ static void main_screen_create(void)
     lv_obj_set_size(s_pct, 40, MAIN_LBL_H);
     lv_obj_set_pos(s_pct, MAIN_BAT_X, 1);
     lv_obj_set_style_text_align(s_pct, LV_TEXT_ALIGN_CENTER, 0);
-
-    /* 电量填充条：初始宽 0、右对齐到主体右端，
-     * 实际尺寸每次刷新由 update_battery() 设定。 */
-    s_bar = lv_obj_create(s_scr);
-    lv_obj_set_style_border_width(s_bar, 0, 0);
-    lv_obj_set_style_radius(s_bar, 0, 0);
-    lv_obj_set_style_pad_all(s_bar, 0, 0);
-    lv_obj_remove_flag(s_bar, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(s_bar, 0, 10);
-    lv_obj_set_pos(s_bar, MAIN_BAT_X + 39, 2);
-
-    /* 左侧小凸起：只在电量很高（fill > 35）时才点亮 */
-    s_tab = lv_obj_create(s_scr);
-    lv_obj_set_style_border_width(s_tab, 0, 0);
-    lv_obj_set_style_radius(s_tab, 0, 0);
-    lv_obj_set_style_pad_all(s_tab, 0, 0);
-    lv_obj_remove_flag(s_tab, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(s_tab, 0, 10);
-    lv_obj_set_pos(s_tab, MAIN_BAT_X + 3, 2);
-    lv_obj_set_style_bg_color(s_tab, lv_color_hex(0x00F008), 0);
-    lv_obj_add_flag(s_tab, LV_OBJ_FLAG_HIDDEN);   /* 默认隐藏，由刷新逻辑按需显示 */
 
     /* ETA 状态机复位：首帧必然显示无效，等稳定 5s 后才有值 */
     s_eta_mode = 0U;

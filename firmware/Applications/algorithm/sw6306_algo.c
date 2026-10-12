@@ -60,8 +60,8 @@ uint16_t SW6306_LowCurrentThreshold_mA = 80U;
  * 用宏（编译期常量）而不是 RAM 变量——退出判据（本文件的 100ms 服务）
  * 和剩余时间显示（SW6306_AlgoGetLowCurrentRemainingMs）必须永远一致，
  * 宏从根上排除"两个 RAM 值不同步"的可能。
- * 量产值：60 分钟；实验值：1 分钟（见下方定义）。 */
-#define SW6306_LOW_CURRENT_TIMEOUT_MIN   1UL
+ * 量产值：60 分钟（1 小时）；实验时可临时改为 1。 */
+#define SW6306_LOW_CURRENT_TIMEOUT_MIN   60UL
 #define SW6306_LOW_CURRENT_TIMEOUT_MS    (SW6306_LOW_CURRENT_TIMEOUT_MIN * 60000UL)
 
 static void sw6306_algo_set_command(uint16_t mask)
