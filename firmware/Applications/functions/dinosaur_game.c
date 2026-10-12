@@ -6,6 +6,7 @@
 #include "dinosaur_game.h"
 #include "dinosaur_icon.h"
 #include "functions.h"
+#include "menu.h"              /* menu_tr：结束界面文案的 i18n */
 #include "framework/pm_api.h"
 #include "at32f423.h"
 #include <math.h>
@@ -414,8 +415,17 @@ static void game_create(void)
     hud = label("*** HI 00000  00000", 8, 0, 152);
     lv_obj_set_style_text_font(hud, &lv_font_unscii_8, 0);
     lv_obj_set_height(hud, 9); /* UNSCII-8 行高9，字宽8；17字符仍为136px */
-    over[0] = label("GAME OVER", 80, 13, 80);
-    over[1] = label("NEXT/CONF", 80, 26, 80);
+    /* 结束界面文案走 i18n（menu_tr）：key 为英文，中文取自 menu_tr_table。
+     * 注意：新增中文必须同时出现在 menu_pages.c 的 menu_tr_table 里——
+     * tools/fonts/build_lvgl_font.py 只从该表提取汉字生成字库子集，
+     * 表里没有的字在当前字体下没有字形、会显示空白。
+     *
+     * 宽度：标签从 80px 加宽到 100px。实测中文字体下
+     *   "GAME OVER"=63px、"游戏结束"=48px、"跳跃以重新开始"=84px，
+     * 原来 80px 会把 84px 的中文截断。英文 "JUMP TO RESTART"=102px
+     * 仍略超 2px，若要英文态也完整显示需再放宽到 104px（屏幕宽 160 够用）。 */
+    over[0] = label(menu_tr("GAME OVER"), 80, 13, 80);
+    over[1] = label(menu_tr("JUMP TO RESTART"), 30, 26, 100);
     for (i = 0; i < 2; ++i) {
         lv_obj_set_style_bg_color(over[i], lv_color_hex(0x101010), 0);
         lv_obj_set_style_bg_opa(over[i], LV_OPA_COVER, 0);

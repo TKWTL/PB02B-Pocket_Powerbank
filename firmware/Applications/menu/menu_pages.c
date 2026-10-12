@@ -52,26 +52,27 @@ char menu_status_bat[24] = "--.-V --.-A";
 static const menu_tr_t menu_tr_table[] = {
     /* ---- 根图标页 ---- */
     { "Menu", "菜单" },
+    { "Main Page", "主页面" },
     { "Return", "返回" },
     { "Settings", "设置" },
     { "Status", "状态" },
     { "Tools", "工具" },
-    { "Dino Game", "小恐龙游戏" },
+    { "Dino Game", "小恐龙" },
     { "About", "关于" },
     /* ---- About WORD页 ---- */
     { "Pocket PowerBank", "口袋充电宝" },
     { "Firmware 1.2.0", "固件 1.2.0" },
-    { "Open Source Hardware", "开源硬件" },
-    { "Author: TKWTL", "作者: TKWTL" },
+    { "Author:TKWTL   Git:", "作者:TKWTL   Git:" },
+    { "Powered by:", "基于" },
     /* ---- Status 页 ---- */
     { "Battery", "电池" },
-    { "Accelerator", "加速度" },
+    { "Accelerator", "加速度计" },
     { "Timer", "时钟" },
     /* Status → Battery */
     { "Max: %lu.%02lu Wh", "最大能量: %lu.%02lu Wh" },
     { "Now: %lu.%02lu Wh", "当前能量: %lu.%02lu Wh" },
     { "Health: %lu%%", "健康度: %lu%%" },
-    { "Cycles: %lu.%02lu", "循环: %lu.%02lu" },
+    { "Cycles: %lu.%02lu", "循环次数: %lu.%02lu" },
     { "Learn:%s", "容量学习:%s" },
     { "Waiting", "等待" },
     { "Idle", "空闲" },
@@ -89,9 +90,9 @@ static const menu_tr_t menu_tr_table[] = {
     { "Leveler", "水平仪" },
     { "SOS Blink", "SOS 闪灯" },
     { "Screen Test", "屏幕测试" },
-    { "Emergency Light", "紧急闪灯" },
-    { "Max Bright Pulses", "最高亮度脉冲" },
-    { "100ms Dot / 5s+", "100ms点 / 5秒以上" },
+    { "Emergency Light", "紧急求救闪灯" },
+    { "Max Bright Pulses", "将使用最高亮度脉冲" },
+    { "100ms Dot / 5s+", "打点100ms 间隔5秒+" },
     { "Function Not Ready", "功能尚未完成" },
     { "Cycles Solid Colors", "循环显示纯色" },
     { "Check Pixel Defects", "检查坏点" },
@@ -105,14 +106,16 @@ static const menu_tr_t menu_tr_table[] = {
     { "Press CONF to Exit", "按 CONF 退出" },
     { "Press CONF to Start", "按 CONF 开始" },
     /* ---- Dino Game 页 ---- */
+    { "GAME OVER", "游戏结束" },
+    { "JUMP TO RESTART", "跳跃以重新开始" },
     /* ---- Settings 页（四个子页） ---- */
     { "PowerBank", "移动电源" },
     { "Display", "显示" },
     { "Sleep & Wake", "休眠与唤醒" },
     { "System", "系统" },
     /* Settings → PowerBank */
-    { "Protocol#1", "协议#1" },
-    { "Protocol#2", "协议#2" },
+    { "Protocol#1", "协议组 #1" },
+    { "Protocol#2", "协议组 #2" },
     { "PowerLimit", "功率限制" },
     /* PowerBank → Protocol#1（PD / PPS / UFCS） */
     { "PD out", "PD 输出" },
@@ -153,10 +156,10 @@ static const menu_tr_t menu_tr_table[] = {
     /* Clock 子页的页面标题仍是 "Time"（菜单项标签改叫 Clock，页面标题未改） */
     { "Time", "时间" },
     { "Language", "语言" },
-    { "Factory Unlock", "出厂解锁" },
-    { "Factory Option", "出厂选项" },
-    { "Factory Locked", "出厂选项已锁定" },
-    { "Use Factory Unlock", "请先进行出厂解锁" },
+    { "Factory Unlock", "工厂解锁" },
+    { "Factory Option", "工厂选项" },
+    { "Factory Locked", "工厂选项已锁定" },
+    { "Use Factory Unlock", "请先进行工厂解锁" },
     { "Enter Password", "输入密码" },
     { "Waiting...", "等待输入..." },
     { "Unlocked", "已解锁" },
@@ -885,7 +888,7 @@ static void gravity_calibrate_apply(menu_item_t *it)
 static const char * const word_accel_calibrate[] = {
     "Gravity Calibrate",
     "Auto Detect 6 Sides",
-    "Hold Each Side 2 sec",
+    "Hold Each Side 2sec",
     "UP/DOWN/LEFT/RIGHT",
     "Then Face Up/Down",
     "Any Key Exits Test",
@@ -920,8 +923,10 @@ MENU_WORD_INFO_(menu_page_about, word_about);
 
 /* ==================== 根页（图标页，菜单根节点；套娃引用各子页） ==================== */
 static const menu_item_t menu_items_root[] = {
-    /* 根节点 Return = 主界面应用（菜单应用模型统一管理；MiaoUI 风格上电先显示主界面） */
-    MENU_ITEM_APP_("Return", &menu_app_main),
+    /* 根节点 Main Page = 主界面应用（菜单应用模型统一管理；MiaoUI 风格上电先显示主界面）
+     * 名字用 "Main Page" 而不是 "Return"：根页这项是"去主界面"，
+     * 与各子页的 MENU_ITEM_BACK_("Return")（返回上级）语义不同，避免混淆。 */
+    MENU_ITEM_APP_("Main Page", &menu_app_main),
     MENU_ITEM_PAGE_("Settings", &menu_page_settings),
     MENU_ITEM_PAGE_("Status",   &menu_page_status),
     MENU_ITEM_PAGE_("Tools",    &menu_page_tools),
@@ -931,7 +936,7 @@ static const menu_item_t menu_items_root[] = {
 
 /* 根页图标（与 items 一一对应，顺序即循环顺序） */
 static const menu_icon_t menu_icons_root[] = {
-    { &menu_icon_return,   &menu_icon_return_small,   "Return"   },
+    { &menu_icon_return,   &menu_icon_return_small,   "Main Page" },
     { &menu_icon_settings, &menu_icon_settings_small, "Settings" },
     { &menu_icon_status,   &menu_icon_status_small,   "Status"   },
     { &menu_icon_tools,    &menu_icon_tools_small,    "Tools"    },
