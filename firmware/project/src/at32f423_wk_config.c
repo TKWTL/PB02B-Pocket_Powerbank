@@ -207,9 +207,6 @@ void wk_periph_clock_config(void)
   /* enable adc1 periph clock */
   crm_periph_clock_enable(CRM_ADC1_PERIPH_CLOCK, TRUE);
 
-  /* enable spi1 periph clock */
-  crm_periph_clock_enable(CRM_SPI1_PERIPH_CLOCK, TRUE);
-
   /* enable scfg periph clock */
   crm_periph_clock_enable(CRM_SCFG_PERIPH_CLOCK, TRUE);
 }
@@ -286,7 +283,8 @@ void wk_gpio_config(void)
   gpio_init(GPIOF, &gpio_init_struct);
 
   gpio_init_struct.gpio_mode = GPIO_MODE_ANALOG;
-  gpio_init_struct.gpio_pins = GPIO_PINS_1 | GPIO_PINS_2;
+  gpio_init_struct.gpio_pins = GPIO_PINS_1 | GPIO_PINS_2 | GPIO_PINS_4 | GPIO_PINS_5 | GPIO_PINS_6 | 
+                               GPIO_PINS_7;
   gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
   gpio_init(GPIOA, &gpio_init_struct);
 
@@ -669,92 +667,6 @@ void wk_tmr1_init(void)
 }
 
 /**
-  * @brief  init spi1 function
-  * @param  none
-  * @retval none
-  */
-void wk_spi1_init(void)
-{
-  /* add user code begin spi1_init 0 */
-
-  /* add user code end spi1_init 0 */
-
-  gpio_init_type gpio_init_struct;
-  spi_init_type spi_init_struct;
-
-  gpio_default_para_init(&gpio_init_struct);
-  spi_default_para_init(&spi_init_struct);
-
-  /* add user code begin spi1_init 1 */
-
-  /* add user code end spi1_init 1 */
-
-  /* configure the SCK pin */
-  gpio_pin_mux_config(FSCK_GPIO_PORT, GPIO_PINS_SOURCE5, GPIO_MUX_5);
-  gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_STRONGER;
-  gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
-  gpio_init_struct.gpio_mode = GPIO_MODE_MUX;
-  gpio_init_struct.gpio_pins = FSCK_PIN;
-  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
-  gpio_init(FSCK_GPIO_PORT, &gpio_init_struct);
-
-  /* configure the MISO pin */
-  gpio_pin_mux_config(FMISO_GPIO_PORT, GPIO_PINS_SOURCE6, GPIO_MUX_5);
-  gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
-  gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
-  gpio_init_struct.gpio_mode = GPIO_MODE_MUX;
-  gpio_init_struct.gpio_pins = FMISO_PIN;
-  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
-  gpio_init(FMISO_GPIO_PORT, &gpio_init_struct);
-
-  /* configure the MOSI pin */
-  gpio_pin_mux_config(FMOSI_GPIO_PORT, GPIO_PINS_SOURCE7, GPIO_MUX_5);
-  gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_STRONGER;
-  gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
-  gpio_init_struct.gpio_mode = GPIO_MODE_MUX;
-  gpio_init_struct.gpio_pins = FMOSI_PIN;
-  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
-  gpio_init(FMOSI_GPIO_PORT, &gpio_init_struct);
-
-  /* configure the CS pin */
-  gpio_pin_mux_config(FCS_GPIO_PORT, GPIO_PINS_SOURCE4, GPIO_MUX_5);
-  gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
-  gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
-  gpio_init_struct.gpio_mode = GPIO_MODE_MUX;
-  gpio_init_struct.gpio_pins = FCS_PIN;
-  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
-  gpio_init(FCS_GPIO_PORT, &gpio_init_struct);
-
-  /* configure param */
-  spi_init_struct.transmission_mode = SPI_TRANSMIT_FULL_DUPLEX;
-  spi_init_struct.master_slave_mode = SPI_MODE_MASTER;
-  spi_init_struct.frame_bit_num = SPI_FRAME_8BIT;
-  spi_init_struct.first_bit_transmission = SPI_FIRST_BIT_MSB;
-  spi_init_struct.mclk_freq_division = SPI_MCLK_DIV_3;
-  spi_init_struct.clock_polarity = SPI_CLOCK_POLARITY_LOW;
-  spi_init_struct.clock_phase = SPI_CLOCK_PHASE_1EDGE;
-  spi_init_struct.cs_mode_selection = SPI_CS_HARDWARE_MODE;
-  spi_init(SPI1, &spi_init_struct);
-
-  /* configure the cs pin output */
-  spi_hardware_cs_output_enable(SPI1, TRUE);
-
-  spi_i2s_dma_transmitter_enable(SPI1, TRUE);
-
-  spi_i2s_dma_receiver_enable(SPI1, TRUE);
-
-  /* add user code begin spi1_init 2 */
-
-  /* add user code end spi1_init 2 */
-
-  spi_enable(SPI1, TRUE);
-
-  /* add user code begin spi1_init 3 */
-
-  /* add user code end spi1_init 3 */
-}
-
-/**
   * @brief  init spi3 function
   * @param  none
   * @retval none
@@ -886,72 +798,6 @@ void wk_dma1_channel1_init(void)
   /* add user code begin dma1_channel1 1 */
 
   /* add user code end dma1_channel1 1 */
-}
-
-/**
-  * @brief  init dma1 channel4 for "spi1_tx"
-  * @param  none
-  * @retval none
-  */
-void wk_dma1_channel4_init(void)
-{
-  /* add user code begin dma1_channel4 0 */
-
-  /* add user code end dma1_channel4 0 */
-
-  dma_init_type dma_init_struct;
-
-  dma_reset(DMA1_CHANNEL4);
-  dma_default_para_init(&dma_init_struct);
-  dma_init_struct.direction = DMA_DIR_MEMORY_TO_PERIPHERAL;
-  dma_init_struct.memory_data_width = DMA_MEMORY_DATA_WIDTH_BYTE;
-  dma_init_struct.memory_inc_enable = TRUE;
-  dma_init_struct.peripheral_data_width = DMA_PERIPHERAL_DATA_WIDTH_BYTE;
-  dma_init_struct.peripheral_inc_enable = FALSE;
-  dma_init_struct.priority = DMA_PRIORITY_LOW;
-  dma_init_struct.loop_mode_enable = FALSE;
-  dma_init(DMA1_CHANNEL4, &dma_init_struct);
-
-  /* dmamux function enable */
-  dmamux_enable(DMA1, TRUE);
-  dmamux_init(DMA1MUX_CHANNEL4, DMAMUX_DMAREQ_ID_SPI1_TX);
-
-  /* add user code begin dma1_channel4 1 */
-
-  /* add user code end dma1_channel4 1 */
-}
-
-/**
-  * @brief  init dma1 channel5 for "spi1_rx"
-  * @param  none
-  * @retval none
-  */
-void wk_dma1_channel5_init(void)
-{
-  /* add user code begin dma1_channel5 0 */
-
-  /* add user code end dma1_channel5 0 */
-
-  dma_init_type dma_init_struct;
-
-  dma_reset(DMA1_CHANNEL5);
-  dma_default_para_init(&dma_init_struct);
-  dma_init_struct.direction = DMA_DIR_PERIPHERAL_TO_MEMORY;
-  dma_init_struct.memory_data_width = DMA_MEMORY_DATA_WIDTH_BYTE;
-  dma_init_struct.memory_inc_enable = TRUE;
-  dma_init_struct.peripheral_data_width = DMA_PERIPHERAL_DATA_WIDTH_BYTE;
-  dma_init_struct.peripheral_inc_enable = FALSE;
-  dma_init_struct.priority = DMA_PRIORITY_LOW;
-  dma_init_struct.loop_mode_enable = FALSE;
-  dma_init(DMA1_CHANNEL5, &dma_init_struct);
-
-  /* dmamux function enable */
-  dmamux_enable(DMA1, TRUE);
-  dmamux_init(DMA1MUX_CHANNEL5, DMAMUX_DMAREQ_ID_SPI1_RX);
-
-  /* add user code begin dma1_channel5 1 */
-
-  /* add user code end dma1_channel5 1 */
 }
 
 /**

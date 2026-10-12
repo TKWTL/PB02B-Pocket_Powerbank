@@ -33,6 +33,7 @@ extern "C" {
 
 void wk_timebase_init(void);
 void wk_timebase_handler(void);
+uint32_t wk_timebase_get(void);
 void wk_delay_ms(uint32_t delay);
 
 #ifdef __cplusplus

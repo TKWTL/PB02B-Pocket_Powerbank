@@ -29,9 +29,6 @@
 #include "wk_system.h"
 #include "freertos_app.h"
 
-#include "i2c_application.h"
-
-extern i2c_handle_type hi2c1;
 /* private includes ----------------------------------------------------------*/
 /* add user code begin private includes */
 #include "bsp_i2c.h"
@@ -141,6 +138,7 @@ void HardFault_Handler(void)
   }
 }
 
+
 /**
   * @brief  this function handles memory manage exception.
   * @param  none
@@ -197,7 +195,6 @@ void UsageFault_Handler(void)
     /* add user code end W1_UsageFault_IRQ 0 */
   }
 }
-
 
 /**
   * @brief  this function handles debug monitor exception.
@@ -435,8 +432,6 @@ void I2C1_EVT_IRQHandler(void)
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
   /* add user code end I2C1_EVT_IRQ 0 */
 
-  i2c_evt_irq_handler(&hi2c1);
-
   /* add user code begin I2C1_EVT_IRQ 1 */
     i2c_evt_irq_cnt++;                                  /* 风暴判定计数器（ISR 内不打印） */
     i2c_last_sts    = I2C1->sts;
@@ -469,8 +464,6 @@ void I2C1_ERR_IRQHandler(void)
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     i2c_fault_capture();   /* 先抓原始故障现场：官方 handler 随后会清掉错误标志 */
   /* add user code end I2C1_ERR_IRQ 0 */
-
-  i2c_err_irq_handler(&hi2c1);
 
   /* add user code begin I2C1_ERR_IRQ 1 */
     i2c_err_irq_cnt++;                                  /* 风暴判定计数器（ISR 内不打印） */

@@ -28,7 +28,6 @@
 #include "at32f423_wk_config.h"
 #include "wk_system.h"
 #include "freertos_app.h"
-#include "i2c_app.h"
 
 /* private includes ----------------------------------------------------------*/
 /* add user code begin private includes */
@@ -126,7 +125,6 @@ static void boot_print_banner(void)
 }
 /* add user code end 0 */
 
-
 /**
   * @brief  take some delay for waiting power stable, delay is about 60ms with frequency 8MHz.
   * @param  none
@@ -189,28 +187,6 @@ int main(void)
                         DMA1_CHANNEL1_BUFFER_SIZE);
   dma_channel_enable(DMA1_CHANNEL1, TRUE);
 
-  /* init dma1 channel4 */
-  wk_dma1_channel4_init();
-  /* config dma channel transfer parameter */
-  /* user need to modify define values DMAx_CHANNELy_XXX_BASE_ADDR 
-     and DMAx_CHANNELy_BUFFER_SIZE in at32xxx_wk_config.h */
-  wk_dma_channel_config(DMA1_CHANNEL4, 
-                        (uint32_t)&SPI1->dt, 
-                        DMA1_CHANNEL4_MEMORY_BASE_ADDR, 
-                        DMA1_CHANNEL4_BUFFER_SIZE);
-  dma_channel_enable(DMA1_CHANNEL4, TRUE);
-
-  /* init dma1 channel5 */
-  wk_dma1_channel5_init();
-  /* config dma channel transfer parameter */
-  /* user need to modify define values DMAx_CHANNELy_XXX_BASE_ADDR 
-     and DMAx_CHANNELy_BUFFER_SIZE in at32xxx_wk_config.h */
-  wk_dma_channel_config(DMA1_CHANNEL5, 
-                        (uint32_t)&SPI1->dt, 
-                        DMA1_CHANNEL5_MEMORY_BASE_ADDR, 
-                        DMA1_CHANNEL5_BUFFER_SIZE);
-  dma_channel_enable(DMA1_CHANNEL5, TRUE);
-
   /* init dma1 channel6 */
   wk_dma1_channel6_init();
   /* config dma channel transfer parameter */
@@ -236,9 +212,6 @@ int main(void)
   /* init usart1 function. */
   wk_usart1_init();
 
-  /* init spi1 function. */
-  wk_spi1_init();
-
   /* init spi3 function. */
   wk_spi3_init();
 
@@ -253,9 +226,6 @@ int main(void)
 
   /* init tmr1 function. */
   wk_tmr1_init();
-
-  /* init i2c app function. */
-  wk_i2c_app_init();
 
   /* add user code begin 2 */
     //上电 banner：复位原因 + 崩溃现场 + 项目/固件/硬件信息（USART1 已初始化）

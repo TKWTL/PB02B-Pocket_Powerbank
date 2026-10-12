@@ -71,12 +71,12 @@ extern "C" {
 //#define DMA1_CHANNEL3_MEMORY_BASE_ADDR   0
 //#define DMA1_CHANNEL3_PERIPHERAL_BASE_ADDR   0
 
-#define DMA1_CHANNEL4_BUFFER_SIZE   0
-#define DMA1_CHANNEL4_MEMORY_BASE_ADDR   0
+//#define DMA1_CHANNEL4_BUFFER_SIZE   0
+//#define DMA1_CHANNEL4_MEMORY_BASE_ADDR   0
 //#define DMA1_CHANNEL4_PERIPHERAL_BASE_ADDR   0
 
-#define DMA1_CHANNEL5_BUFFER_SIZE   0
-#define DMA1_CHANNEL5_MEMORY_BASE_ADDR   0
+//#define DMA1_CHANNEL5_BUFFER_SIZE   0
+//#define DMA1_CHANNEL5_MEMORY_BASE_ADDR   0
 //#define DMA1_CHANNEL5_PERIPHERAL_BASE_ADDR   0
 
 #define DMA1_CHANNEL6_BUFFER_SIZE   0
@@ -121,14 +121,6 @@ extern "C" {
 #define NEXT_GPIO_PORT    GPIOA
 #define WP_PIN    GPIO_PINS_3
 #define WP_GPIO_PORT    GPIOA
-#define FCS_PIN    GPIO_PINS_4
-#define FCS_GPIO_PORT    GPIOA
-#define FSCK_PIN    GPIO_PINS_5
-#define FSCK_GPIO_PORT    GPIOA
-#define FMISO_PIN    GPIO_PINS_6
-#define FMISO_GPIO_PORT    GPIOA
-#define FMOSI_PIN    GPIO_PINS_7
-#define FMOSI_GPIO_PORT    GPIOA
 #define LED_PIN    GPIO_PINS_0
 #define LED_GPIO_PORT    GPIOB
 #define CONF_PIN    GPIO_PINS_1
@@ -175,9 +167,6 @@ extern "C" {
   /* init i2c1 function. */
   void wk_i2c1_init(void);
 
-  /* init spi1 function. */
-  void wk_spi1_init(void);
-
   /* init spi3 function. */
   void wk_spi3_init(void);
 
@@ -189,12 +178,6 @@ extern "C" {
 
   /* init dma1 channel1 */
   void wk_dma1_channel1_init(void);
-
-  /* init dma1 channel4 */
-  void wk_dma1_channel4_init(void);
-
-  /* init dma1 channel5 */
-  void wk_dma1_channel5_init(void);
 
   /* init dma1 channel6 */
   void wk_dma1_channel6_init(void);
