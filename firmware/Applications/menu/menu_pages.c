@@ -160,6 +160,8 @@ static const menu_tr_t menu_tr_table[] = {
     /* Clock 子页的页面标题仍是 "Time"（菜单项标签改叫 Clock，页面标题未改） */
     { "Time", "时间" },
     { "Language", "语言" },
+    { "Chinese", "中文" },
+    { "Language separator", "：" },
     { "Factory Unlock", "工厂解锁" },
     { "Factory Option", "工厂选项" },
     { "Factory Locked", "工厂选项已锁定" },
@@ -203,13 +205,13 @@ static const menu_tr_t menu_tr_table[] = {
 };
 
 /* 当前语言（渲染层状态；切语言后调用 menu_notify_changed() 重绘即生效） */
-static menu_lang_t s_menu_lang = MENU_LANG_ZH;
+static uint8_t s_lang_is_zh = 1U; /* Language TOGGLE，默认中文 */
 
 static const char *menu_tr_key(const char *key)
 {
     unsigned i;
 
-    if (!key || s_menu_lang == MENU_LANG_EN) {
+    if (!key || !s_lang_is_zh) {
         return key;   /* key 本身就是英文，英文态无需查表 */
     }
     for (i = 0; i < sizeof(menu_tr_table) / sizeof(menu_tr_table[0]); i++) {
@@ -226,18 +228,18 @@ void menu_lang_set(menu_lang_t lang)
     if (lang < MENU_LANG_EN || lang > MENU_LANG_ZH) {
         return;
     }
-    s_menu_lang = lang;
+    s_lang_is_zh = (uint8_t)(lang == MENU_LANG_ZH);
 }
 
 /* 供 UI 切换语言：设置页 Language 条目调用（EN <-> ZH） */
 void menu_lang_toggle(void)
 {
-    menu_lang_set((s_menu_lang == MENU_LANG_EN) ? MENU_LANG_ZH : MENU_LANG_EN);
+    menu_lang_set(s_lang_is_zh ? MENU_LANG_EN : MENU_LANG_ZH);
 }
 
 menu_lang_t menu_lang_get(void)
 {
-    return s_menu_lang;
+    return s_lang_is_zh ? MENU_LANG_ZH : MENU_LANG_EN;
 }
 
 const char *menu_tr(const char *key)
@@ -248,13 +250,13 @@ const char *menu_tr(const char *key)
 /* 菜单中文用12px子集，英文保持原字号；主屏数值另用等宽字体。 */
 const lv_font_t *menu_font_main(void)
 {
-    return (s_menu_lang == MENU_LANG_ZH) ?
+    return s_lang_is_zh ?
            &lv_font_menucn_12 : &lv_font_ter_u14b;
 }
 
 const lv_font_t *menu_font_small(void)
 {
-    return (s_menu_lang == MENU_LANG_ZH) ?
+    return s_lang_is_zh ?
            &lv_font_menucn_12 : &lv_font_montserrat_12;
 }
 
@@ -307,14 +309,6 @@ static void sleep_apply(menu_item_t *it)
     if (s_sleep_idx >= 0 && s_sleep_idx < (int32_t)(sizeof(s_sleep_opts_sec) / sizeof(s_sleep_opts_sec[0]))) {
         pm_api_set_sleep_timeout(s_sleep_opts_sec[s_sleep_idx]);
     }
-}
-
-static void lang_apply(menu_item_t *it)
-{
-    (void)it;
-    /* 语言切换只在这里发生；切完重绘即生效 */
-    menu_lang_toggle();
-    menu_notify_changed();
 }
 
 static void theme_toggle_apply(menu_item_t *it)
@@ -679,7 +673,7 @@ MENU_WORD_CONFIRM_(menu_page_transport, word_transport, action_transport_mode);
 static const menu_item_t menu_items_system[] = {
     MENU_ITEM_BACK_("Return"),
     MENU_ITEM_PAGE_("Clock",           &menu_page_time),
-    MENU_ITEM_ACTION_("Language",      lang_apply),
+    MENU_ITEM_TOGGLE_("Language", &s_lang_is_zh, "Chinese", "English", NULL),
     MENU_ITEM_PAGE_("Factory Unlock",  &menu_page_factory_unlock),
     MENU_ITEM_ACTION_("Factory Option", factory_option_apply),
     MENU_ITEM_PAGE_("Transport Mode",  &menu_page_transport),

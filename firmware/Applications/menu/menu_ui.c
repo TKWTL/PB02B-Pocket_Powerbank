@@ -148,7 +148,13 @@ static void fmt_item_text(const menu_item_t *it, bool editing, bool selected, ch
         uint8_t on = it->toggle_ptr ? *it->toggle_ptr : 0;
         const char *txt = on ? (it->toggle_on ? it->toggle_on : "ON")
                              : (it->toggle_off ? it->toggle_off : "OFF");
-        mini_snprintf(buf, len, "%s: %s", menu_tr(it->label), menu_tr(txt));
+        if (strcmp(it->label, "Language") == 0) {
+            mini_snprintf(buf, len, "%s%s%s", menu_tr(it->label),
+                          menu_lang_get() == MENU_LANG_ZH ?
+                          menu_tr("Language separator") : ":", menu_tr(txt));
+        } else {
+            mini_snprintf(buf, len, "%s: %s", menu_tr(it->label), menu_tr(txt));
+        }
         break;
     }
     case MENU_ITEM_VALUE:
@@ -1689,8 +1695,11 @@ void menu_ui_redraw(void)
         if (st->editing) {
             lv_label_set_text(s_indicator, menu_tr("EDIT"));
         } else {
-            mini_snprintf(buf, sizeof(buf), "%d/%d", (int)st->index + 1,
-                     pg ? (int)pg->item_count : 0);
+            /* ICON->Settings深度1无前缀；再向下每增加一层，序号前加一条'-'。 */
+            uint8_t dashes = st->depth > 1U ? st->depth - 1U : 0U;
+            memset(buf, '-', dashes);
+            mini_snprintf(buf + dashes, sizeof(buf) - dashes, "%d/%d",
+                          (int)st->index + 1, pg ? (int)pg->item_count : 0);
             lv_label_set_text(s_indicator, buf);
         }
         /* 角落 prev/next 的静止位定位只允许在静止态做：动画中（s_sliding）调用
