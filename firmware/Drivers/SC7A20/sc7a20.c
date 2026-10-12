@@ -547,7 +547,7 @@ SC7A20_RET SC7A20_Init(SC7A20_NOARG)
          * SC7A20 v0.4 but bit7/6 assignment is not documented there;
          * 0xC0 is LIS2DH-compatible and MUST be verified on this board. */
         SC7A20_SPAWN_ARGS(SC7A20_ByteWrite, SC7A20_CTRG_TEMP_CFG, 0xC0U);
-        //控制寄存器1：ODR（当前默认10Hz，供低速姿态检测）+ 轴使能
+        //控制寄存器1：ODR（默认25Hz，应用层5Hz读取姿态）+ 轴使能
         SC7A20_SPAWN_ARGS(SC7A20_ByteWrite, SC7A20_CTRG_CTRL1,
                           (SC7A20_DEFAULT_ODR & SC7A20_CTRL1_ODR_MSK) |
                           (SC7A20_DEFAULT_AXIS_EN & (SC7A20_CTRL1_ZEN|SC7A20_CTRL1_YEN|SC7A20_CTRL1_XEN)));

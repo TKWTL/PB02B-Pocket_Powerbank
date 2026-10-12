@@ -163,7 +163,7 @@ void load_task(void *pvParameters)
             sd3078_try_init();
 
             if (!SC7A20_IsInitialized()) {
-                SC7A20_Init();       /* 传感器10Hz，应用层按5Hz读取 */
+                SC7A20_Init();       /* 传感器25Hz，应用层按5Hz读取 */
                 SC7A20_AlgoInit();
                 exint_flag_clear(EXINT_LINE_8);
                 NVIC_ClearPendingIRQ(EXINT9_5_IRQn);

@@ -8,13 +8,6 @@
 #include "task.h"
 #include "at32f423.h"  /* shared SC7A20/SW6306 IRQ input PB8 */
 
-/* Temporary USART1/115200 wake-cycle tracing; set to 0 after diagnosis.
- * USART DMA needs to finish before pm_enter_deep_sleep disables clocks. */
-#define SC7A20_WAKE_SERIAL_DEBUG 1U
-#if SC7A20_WAKE_SERIAL_DEBUG
-#include "bsp_usart.h"
-#endif
-
 sc7a20_algo_config_t SC7A20_AlgoConfig = {
     0U, /* pickup_wake：默认关闭，保持现有最低休眠功耗 */
     0U  /* motion_wake：默认关闭 */
@@ -28,15 +21,6 @@ sc7a20_algo_config_t SC7A20_AlgoConfig = {
 static volatile sc7a20_orientation_t s_orientation;
 static sc7a20_orientation_t s_candidate;
 static uint8_t s_candidate_count;
-/* Debugger Watch: sleep attempts rejected because IRQ remained low. */
-volatile uint32_t sc7a20_wake_arm_fail_count;
-volatile uint32_t sc7a20_wake_arm_ok_count;
-volatile uint8_t sc7a20_wake_last_src1, sc7a20_wake_last_src2;
-volatile uint8_t sc7a20_wake_arm_ctrl2, sc7a20_wake_arm_ctrl3;
-volatile uint8_t sc7a20_wake_arm_ctrl1, sc7a20_wake_arm_int1_cfg;
-volatile uint8_t sc7a20_wake_arm_pb8; /* physical shared IRQ level: 1=idle */
-volatile uint32_t sc7a20_wake_resume_count;
-
 void SC7A20_AlgoInit(void)
 {
     /* 也会在重力校准完成时由UI线程调用，因此与5Hz load_task 更新互斥。 */
@@ -98,6 +82,10 @@ void SC7A20_AlgoLoadSample(void)
 /************************* SC7A20 180°姿态判断算法结束 **************************/
 
 /**************** SC7A20 DeepSleep hardware wake monitor *****************
+ * 致谢：大飞《摇一摇换一签：SC7A20 运动中断调教记录》
+ * https://shenyifei.com/posts/sc7a20-motion-irq
+ * 其 AOI 高通去重力、LIR 锁存与读 SRC 释放的实践为本项目调试提供了参考。
+ * 本项目另采用 25Hz、AOI2/6D 和共用 PB8 的休眠唤醒策略。
  * Shared PB8/EXTI8 is low-active; ISR always wakes without classifying source.
  * Motion: AOI1 (0x30) XYZ OR + high-pass (CTRL2.HPIS1), INT1 CTRL3[6].
  * Pickup: AOI2 (0x34) 6D Movement XYZ axes, INT1 CTRL3[5].
@@ -128,10 +116,8 @@ void SC7A20_AlgoPmSuspend(void *ctx)
     volatile uint8_t scratch;
     (void)ctx;
 
-    if (!SC7A20_IsInitialized() && !pm_api_transport_mode_requested() &&
-        (SC7A20_AlgoConfig.pickup_wake || SC7A20_AlgoConfig.motion_wake))
-        SC7A20_Init();
-
+    /* 首次直接休眠/运输时也须先设置共享 PB8 极性，再进入 Power-down。 */
+    if (!SC7A20_IsInitialized()) SC7A20_Init();
     if (!SC7A20_IsInitialized()) return;
     sc7a20_wake_routes_off();
     /* No temperature ADC needed while the CPU is asleep.
@@ -140,7 +126,7 @@ void SC7A20_AlgoPmSuspend(void *ctx)
 
     if (pm_api_transport_mode_requested() ||
         (!SC7A20_AlgoConfig.pickup_wake && !SC7A20_AlgoConfig.motion_wake)) {
-        SC7A20_LowPowerSet(); /* ODR=0, existing minimum-power path */
+        SC7A20_LowPowerSet(); /* 无唤醒或运输模式：ODR=0，真正 Power-down */
         return;
     }
 
@@ -153,7 +139,7 @@ void SC7A20_AlgoPmSuspend(void *ctx)
         SC7A20_AlgoConfig.motion_wake ? SC7A20_CTRL5_LIR_INT1 : 0U);
 
     /* LIS2DH12 forbids LPen=1 with HR=1. Normal RUN mode uses HR=1,
-     * so clear it BEFORE enabling LPen for the 10/25Hz wake monitor.
+     * so clear it BEFORE enabling LPen for the 25Hz wake monitor.
      * The former illegal mode can inhibit 6D/HPF event recognition. */
     SC7A20_ByteModify(SC7A20_CTRG_CTRL4, SC7A20_CTRL4_HR, 0U);
 
@@ -182,7 +168,7 @@ void SC7A20_AlgoPmSuspend(void *ctx)
     /* Motion 在 25Hz 下使用 768mg / 连续约80ms 的试验门限；
      * 维持 Pickup 已验证的 25Hz/6D 配置，不直接照搬文章的10Hz/500ms。 */
     SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
-        SC7A20_ODR_25HZ | SC7A20_CTRL1_LPEN | SC7A20_DEFAULT_AXIS_EN);
+        SC7A20_DEFAULT_ODR | SC7A20_CTRL1_LPEN | SC7A20_DEFAULT_AXIS_EN);
 
     /* Wait long enough for either ODR's HPF and 6D engines to settle;
      * routing INT1 immediately previously caused false wake-up loops. */
@@ -215,71 +201,31 @@ void SC7A20_AlgoPmSuspend(void *ctx)
             }
         }
         if (low_streak >= 20U) {
-            volatile uint8_t src1 = 0U, src2 = 0U;
-            SC7A20_ByteRead(SC7A20_STRG_INT1_SOURCE, &src1);
-            SC7A20_ByteRead(SC7A20_STRG_INT2_SOURCE, &src2);
+            /* 先释放可能的锁存；仍低则关闭传感器唤醒，防止卡住 PB8。 */
+            SC7A20_ByteRead(SC7A20_STRG_INT1_SOURCE, &scratch);
+            SC7A20_ByteRead(SC7A20_STRG_INT2_SOURCE, &scratch);
             vTaskDelay(pdMS_TO_TICKS(13U));
-#if SC7A20_WAKE_SERIAL_DEBUG
-            USART_Printf("[SCDBG] LOW S1=%02X S2=%02X PB%u\r\n",
-                (unsigned int)src1, (unsigned int)src2,
-                (unsigned int)(gpio_input_data_bit_read(GPIOB, GPIO_PINS_8) == SET));
-#endif
             if (gpio_input_data_bit_read(GPIOB, GPIO_PINS_8) == RESET) {
-                ++sc7a20_wake_arm_fail_count;
                 sc7a20_wake_routes_off();
                 SC7A20_LowPowerSet();
-            } else {
-                ++sc7a20_wake_arm_ok_count;
             }
-        } else {
-            ++sc7a20_wake_arm_ok_count;
         }
     }
-    /* Verify actual silicon state, not merely software policy. Sample
-     * AFTER the PB8 fail-closed guard to catch a disarmed second sleep. */
-    SC7A20_ByteRead(SC7A20_CTRG_CTRL1, &sc7a20_wake_arm_ctrl1);
-    SC7A20_ByteRead(SC7A20_CTRG_CTRL2, &sc7a20_wake_arm_ctrl2);
-    SC7A20_ByteRead(SC7A20_CTRG_CTRL3, &sc7a20_wake_arm_ctrl3);
-    SC7A20_ByteRead(SC7A20_CTRG_INT1_CFG, &sc7a20_wake_arm_int1_cfg);
-    sc7a20_wake_arm_pb8 = gpio_input_data_bit_read(GPIOB, GPIO_PINS_8) == SET;
-
-#if SC7A20_WAKE_SERIAL_DEBUG
-    /* PM task still has USART1/DMA clocks here. Keep each line <64 bytes;
-     * give DMA time to drain before entering WFI/clock gating. */
-    USART_Printf("[SCDBG] ARM P%u M%u OK%lu FAIL%lu PB%u\r\n",
-        (unsigned int)SC7A20_AlgoConfig.pickup_wake,
-        (unsigned int)SC7A20_AlgoConfig.motion_wake,
-        (unsigned long)sc7a20_wake_arm_ok_count,
-        (unsigned long)sc7a20_wake_arm_fail_count,
-        (unsigned int)sc7a20_wake_arm_pb8);
-    USART_Printf("[SCDBG] REG C1=%02X C2=%02X C3=%02X I1=%02X\r\n",
-        (unsigned int)sc7a20_wake_arm_ctrl1,
-        (unsigned int)sc7a20_wake_arm_ctrl2,
-        (unsigned int)sc7a20_wake_arm_ctrl3,
-        (unsigned int)sc7a20_wake_arm_int1_cfg);
-    vTaskDelay(pdMS_TO_TICKS(30U));
-#endif
 }
 
 void SC7A20_AlgoPmResume(void *ctx)
 {
     (void)ctx;
     if (SC7A20_IsInitialized()) {
-        /* Capture event sources before disabling routes; remains readable
-         * in Watch after the MCU wakes by either sensor or physical button. */
+        /* 先读中断源解除 AOI1 锁存，之后撤销路由；此处不能读 REFERENCE。 */
         volatile uint8_t src = 0U;
         SC7A20_ByteRead(SC7A20_STRG_INT1_SOURCE, &src);
-        sc7a20_wake_last_src1 = src;
         SC7A20_ByteRead(SC7A20_STRG_INT2_SOURCE, &src);
-        sc7a20_wake_last_src2 = src;
-        /* Only reset HPF at next suspend, after settling and before AOI1
-         * re-arm. Reading REFERENCE during resume previously regressed. */
-        ++sc7a20_wake_resume_count;
         /* Clears INT1_CFG after wake, having captured its event source. */
         sc7a20_wake_routes_off(); /* Release shared PB8 before returning. */
         /* Power-down mode removed XYZ enable bits; restore all of them. */
         SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
-            SC7A20_ODR_10HZ | SC7A20_DEFAULT_AXIS_EN);
+            SC7A20_DEFAULT_ODR | SC7A20_DEFAULT_AXIS_EN);
         /* Once LPen is cleared, return to the 12-bit HR=1 RUN mode.
          * Respect the configurable default if HR is disabled in future. */
         SC7A20_ByteModify(SC7A20_CTRG_CTRL4, SC7A20_CTRL4_HR,
@@ -287,15 +233,6 @@ void SC7A20_AlgoPmResume(void *ctx)
         /* TEMP_CFG=0xC0 follows LIS2DH-like ADC_EN/TEMP_EN semantics.
          * Silan v0.4 register list has no bit description: TODO_HW_VERIFY. */
         SC7A20_ByteWrite(SC7A20_CTRG_TEMP_CFG, 0xC0U);
-#if SC7A20_WAKE_SERIAL_DEBUG
-        /* On recovery, USART clock/DMA are already restored; SRC values
-         * can be zero for a short non-latched IRQ even if it woke MCU. */
-        USART_Printf("[SCDBG] WAKE #%lu S1=%02X S2=%02X PB%u\r\n",
-            (unsigned long)sc7a20_wake_resume_count,
-            (unsigned int)sc7a20_wake_last_src1,
-            (unsigned int)sc7a20_wake_last_src2,
-            (unsigned int)(gpio_input_data_bit_read(GPIOB, GPIO_PINS_8) == SET));
-#endif
     } else {
         SC7A20_Init();
     }

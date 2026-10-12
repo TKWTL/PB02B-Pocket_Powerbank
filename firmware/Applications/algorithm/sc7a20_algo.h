@@ -50,13 +50,6 @@ sc7a20_orientation_t SC7A20_AlgoGetOrientation(void);
 /* pm_device callbacks: framework只负责调度，SC7A20具体低功耗策略归算法层。 */
 void SC7A20_AlgoPmSuspend(void *ctx);
 void SC7A20_AlgoPmResume(void *ctx);
-extern volatile uint32_t sc7a20_wake_arm_fail_count;
-extern volatile uint32_t sc7a20_wake_arm_ok_count;
-extern volatile uint8_t sc7a20_wake_last_src1, sc7a20_wake_last_src2;
-extern volatile uint8_t sc7a20_wake_arm_ctrl2, sc7a20_wake_arm_ctrl3;
-extern volatile uint8_t sc7a20_wake_arm_ctrl1, sc7a20_wake_arm_int1_cfg;
-extern volatile uint8_t sc7a20_wake_arm_pb8;
-extern volatile uint32_t sc7a20_wake_resume_count;
 
 #ifdef __cplusplus
 }
