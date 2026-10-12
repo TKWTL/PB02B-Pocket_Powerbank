@@ -161,7 +161,6 @@ static const menu_tr_t menu_tr_table[] = {
     { "Time", "时间" },
     { "Language", "语言" },
     { "Chinese", "中文" },
-    { "Language separator", "：" },
     { "Factory Unlock", "工厂解锁" },
     { "Factory Option", "工厂选项" },
     { "Factory Locked", "工厂选项已锁定" },
@@ -256,8 +255,7 @@ const lv_font_t *menu_font_main(void)
 
 const lv_font_t *menu_font_small(void)
 {
-    return s_lang_is_zh ?
-           &lv_font_menucn_12 : &lv_font_montserrat_12;
+    return &lv_font_menucn_12; /* EN/ZH 均使用1bpp点阵，避免抗锯齿发糊 */
 }
 
 /* ==================== 显示页（Display，三级，归拢显示相关项） ==================== */

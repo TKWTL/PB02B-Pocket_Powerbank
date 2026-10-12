@@ -1179,11 +1179,6 @@
               <FilePath>..\..\Applications\LVGL\src\font\lv_font_montserrat_10.c</FilePath>
             </File>
             <File>
-              <FileName>lv_font_montserrat_12.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\Applications\LVGL\src\font\lv_font_montserrat_12.c</FilePath>
-            </File>
-            <File>
               <FileName>lv_font_montserrat_14.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\Applications\LVGL\src\font\lv_font_montserrat_14.c</FilePath>

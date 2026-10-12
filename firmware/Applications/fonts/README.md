@@ -14,7 +14,9 @@ Keil MDK 工程编译上述 C 字体，LVGL 用 `LV_FONT_CUSTOM_DECLARE` 声明�
 
 ## 本次子集调整与中文基线
 
-- 字库严格匹配当前菜单翻译表；保留 ASCII 32–126、°、？，Language 新增“文”和全角冒号“：”的原生 Fusion Pixel 字形。
-- 使用原始 `fusion-pixel-12px-proportional-zh_hans.bdf` 提取新增16字（使压基打救新束求组结计让跃跳隔面）的原生11×11位图。现在310字均为Fusion Pixel原始位图，不再混用此前临时Noto字形；均遵循SIL OFL 1.1。
+- 字库严格匹配当前菜单翻译表；保留 ASCII 32–126、°、？，Language 使用“文”及字库 ASCII 冒号，移除了不再需要的全角“：”字形。
+- 使用原始 `fusion-pixel-12px-proportional-zh_hans.bdf` 提取新增16字（使压基打救新束求组结计让跃跳隔面）的原生11×11位图。现在309字均为Fusion Pixel原始位图，不再混用此前临时Noto字形；均遵循SIL OFL 1.1。
 - 字体 `.line_height=12`、`.base_line=0`：原始基线 2 下移 2px，只调整中文字形的显示，不改变 TEXT/WORD 菜单动画的 LABEL 坐标或行距。ICON 的中文标题同样使用这套基线。
 - 完整BDF已取得，16个临时字形均已替换；新增文案继续由脚本（默认 `--baseline-shift 2`）重新生成同风格字体。
+
+- 菜单、图标提示等所有原 `lv_font_montserrat_12` 用途改为 `lv_font_menucn_12`（含其 ASCII 字形），`lv_conf.h` 关闭 Montserrat 12 并从 Keil 工程移除该源文件，以减少固件体积。

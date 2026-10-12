@@ -149,9 +149,7 @@ static void fmt_item_text(const menu_item_t *it, bool editing, bool selected, ch
         const char *txt = on ? (it->toggle_on ? it->toggle_on : "ON")
                              : (it->toggle_off ? it->toggle_off : "OFF");
         if (strcmp(it->label, "Language") == 0) {
-            mini_snprintf(buf, len, "%s%s%s", menu_tr(it->label),
-                          menu_lang_get() == MENU_LANG_ZH ?
-                          menu_tr("Language separator") : ":", menu_tr(txt));
+            mini_snprintf(buf, len, "%s:%s", menu_tr(it->label), menu_tr(txt));
         } else {
             mini_snprintf(buf, len, "%s: %s", menu_tr(it->label), menu_tr(txt));
         }
@@ -279,11 +277,8 @@ static void header_set_text(const char *title)
     int32_t width = menu_fixed_text_w(s_header, MENU_TEXT_HEADER_CHARS);
     int32_t available = MENU_SCR_W -
                         menu_fixed_text_w(s_item_next, MENU_TEXT_NEXT_CHARS) - 4;
-    /* 中文字形基线已下移2px；header曾被单独锁为12px高，
-     * 导致标题LABEL自身截掉尾部笔画，并非屏幕边缘裁切。
-     * 仅给中文标题增加2px绘制高度，不触碰其动画坐标。 */
-    int32_t height = lv_font_get_line_height(font) +
-                     (menu_lang_get() == MENU_LANG_ZH ? 2 : 0);
+    /* 中英文共用12px点阵及base_line=0，保留2px绘制空间避免标题末笔裁切。 */
+    int32_t height = lv_font_get_line_height(font) + 2;
     if (width > available) width = available;
     if (width < 1) width = 1;
 
@@ -842,9 +837,10 @@ static void apply_theme(const menu_page_t *pg, uint8_t index)
     lv_obj_set_style_bg_color(s_scr, t->bg, 0);
     lv_obj_set_style_bg_opa(s_scr, LV_OPA_COVER, 0);
     /* 字体：按当前语言统一应用（切语言后 redraw 自动换字体） */
-    if (lv_obj_get_style_text_font(s_header, LV_PART_MAIN) != menu_font_small())
-        lv_obj_set_style_text_font(s_header, menu_font_small(), 0);
-    lv_obj_set_style_text_font(s_indicator,  menu_font_small(), 0);
+    /* TEXT左下页标题/右上序号均使用1bpp点阵；英文不再使用Montserrat。 */
+    if (lv_obj_get_style_text_font(s_header, LV_PART_MAIN) != &lv_font_menucn_12)
+        lv_obj_set_style_text_font(s_header, &lv_font_menucn_12, 0);
+    lv_obj_set_style_text_font(s_indicator, &lv_font_menucn_12, 0);
     lv_obj_set_style_text_font(s_item_prev,      menu_font_main(), 0);
     lv_obj_set_style_text_font(s_item_next,      menu_font_main(), 0);
     lv_obj_set_style_text_font(s_item_prev_in,   menu_font_main(), 0);
@@ -1472,14 +1468,14 @@ lv_obj_t *menu_ui_create(void)
     /* 文本页对角线布局（全部主界面字体 = LV_FONT_DEFAULT = jetbrains_mono_14） */
     s_header = lv_label_create(s_scr);
     lv_obj_set_pos(s_header, MENU_CORNER_X - 1, MENU_ROW_BOT_Y - 1);   /* 左下：菜单名称（左/上各 1px） */
-    lv_obj_set_style_text_font(s_header, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(s_header, &lv_font_menucn_12, 0);
     lv_obj_set_height(s_header, one_line);
     lv_label_set_long_mode(s_header, LV_LABEL_LONG_MODE_CLIP);
     lv_label_set_text(s_header, "");
 
     s_indicator = lv_label_create(s_scr);
     lv_obj_align(s_indicator, LV_ALIGN_TOP_RIGHT, -3, 0);      /* 右上：页码/EDIT */
-    lv_obj_set_style_text_font(s_indicator, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(s_indicator, &lv_font_menucn_12, 0);
     lv_obj_set_height(s_indicator, one_line);
     lv_label_set_text(s_indicator, "");
 
@@ -1546,7 +1542,7 @@ lv_obj_t *menu_ui_create(void)
     s_icon_hint = lv_label_create(s_scr);
     lv_obj_set_pos(s_icon_hint, 3, ICON_TOP_Y);
     lv_obj_set_width(s_icon_hint, MENU_ICON_HINT_W);
-    lv_obj_set_style_text_font(s_icon_hint, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(s_icon_hint, &lv_font_menucn_12, 0);
     lv_obj_set_style_text_align(s_icon_hint, LV_TEXT_ALIGN_LEFT, 0);
     lv_label_set_long_mode(s_icon_hint, LV_LABEL_LONG_MODE_CLIP);
     lv_obj_set_height(s_icon_hint, one_line);
@@ -1555,7 +1551,7 @@ lv_obj_t *menu_ui_create(void)
 
     s_icon_clock = lv_label_create(s_scr);
     lv_obj_align(s_icon_clock, LV_ALIGN_TOP_RIGHT, -3, ICON_TOP_Y);
-    lv_obj_set_style_text_font(s_icon_clock, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(s_icon_clock, &lv_font_menucn_12, 0);
     lv_obj_set_height(s_icon_clock, one_line);
     lv_label_set_text(s_icon_clock, "");
     lv_obj_add_flag(s_icon_clock, LV_OBJ_FLAG_HIDDEN);
@@ -1695,10 +1691,11 @@ void menu_ui_redraw(void)
         if (st->editing) {
             lv_label_set_text(s_indicator, menu_tr("EDIT"));
         } else {
-            /* ICON->Settings深度1无前缀；再向下每增加一层，序号前加一条'-'。 */
-            uint8_t dashes = st->depth > 1U ? st->depth - 1U : 0U;
-            memset(buf, '-', dashes);
-            mini_snprintf(buf + dashes, sizeof(buf) - dashes, "%d/%d",
+            /* INDEX：Settings 2/5，PowerBank >2/4，Protocol#1 >>2/12。
+             * '>' 表示进入下级，避免'-'前缀被误认为负数。 */
+            uint8_t levels = st->depth > 1U ? st->depth - 1U : 0U;
+            memset(buf, '>', levels);
+            mini_snprintf(buf + levels, sizeof(buf) - levels, "%d/%d",
                           (int)st->index + 1, pg ? (int)pg->item_count : 0);
             lv_label_set_text(s_indicator, buf);
         }

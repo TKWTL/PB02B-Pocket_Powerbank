@@ -605,7 +605,7 @@
  * https://fonts.google.com/specimen/Montserrat */
 #define LV_FONT_MONTSERRAT_8  0
 #define LV_FONT_MONTSERRAT_10 0
-#define LV_FONT_MONTSERRAT_12 1
+#define LV_FONT_MONTSERRAT_12 0
 #define LV_FONT_MONTSERRAT_14 0
 #define LV_FONT_MONTSERRAT_14_ALIGNED 0
 #define LV_FONT_MONTSERRAT_16 0
