@@ -20,15 +20,15 @@
 #define DINO_GROUND_W      597
 #define DINO_TICK_MS        33
 #define DINO_CACTUS_N        3
-#define DINO_CLOUD_N         4
+#define DINO_CLOUD_N         3
 
 typedef struct { int16_t x; uint8_t type, active, hit; } cactus_t;
-typedef struct { int16_t x; uint8_t y, div, phase, active; } cloud_t;
+typedef struct { int16_t x; int8_t y; uint8_t div, phase, active; } cloud_t;
 static struct {
     uint32_t distance, best, rng;
     int16_t y2, cactus_gap, cloud_gap; /* y2 为半像素坐标 */
     int8_t vy2;                       /* 半像素/帧；重力为 +1 */
-    uint8_t life, dead, ready, frame;
+    uint8_t life, dead, ready, frame, hi_crossed, hi_blink;
     cactus_t cactus[DINO_CACTUS_N];
     cloud_t cloud[DINO_CLOUD_N];
 } g;
@@ -40,9 +40,13 @@ static lv_timer_t *timer;
 
 static void seed_rng(void)
 {
-    /* 系统毫秒值 + SysTick 子毫秒计数，避免原版 RTC 日期之和导致固定关卡。
-     * 独立 xorshift，不影响其它模块的 srand/rand 全局状态，不产生 I2C 操作。 */
-    g.rng ^= lv_tick_get() ^ SysTick->VAL ^ 0x9E3779B9UL;
+    /* AT32F423参考手册§1.3：96-bit UID从0x1FFFF7E8起。
+     * UID本身固定，并非真随机数；混入系统毫秒和SysTick计数增加变化。
+     * 独立xorshift，不影响其它模块的rand，也不访问I2C/RTC。 */
+    const volatile uint32_t *uid = (const volatile uint32_t *)0x1FFFF7E8UL;
+    g.rng ^= uid[0] ^ (uid[1] << 11 | uid[1] >> 21) ^
+             (uid[2] << 23 | uid[2] >> 9) ^
+             lv_tick_get() ^ SysTick->VAL ^ 0x9E3779B9UL;
     if (!g.rng) g.rng = 0x6D2B79F5UL;
 }
 static uint32_t next_rand(void)
@@ -67,6 +71,8 @@ static void reset_game(void)
     g.life = 3;
     g.dead = 0;
     g.frame = 0;
+    g.hi_crossed = 0;
+    g.hi_blink = 0;
     for (i = 0; i < DINO_CACTUS_N; ++i) g.cactus[i].active = 0;
     for (i = 0; i < DINO_CLOUD_N; ++i) g.cloud[i].active = 0;
     seed_rng();
@@ -101,6 +107,13 @@ static void five_digits(char *p, uint32_t n)
         n /= 10U;
     }
 }
+/* 原来的 -9/+1 半像素运动保持19帧完整周期，显示振幅扩大4/3。
+ * 最高点sprite y=-8，屏幕内仅剩恐龙底部8px。 */
+static int16_t player_screen_y(void)
+{
+    return DINO_Y - (int16_t)((2 * DINO_Y - g.y2) * 2 / 3);
+}
+
 static void draw_game(void)
 {
     static const lv_image_dsc_t *const shapes[4] = {
@@ -114,6 +127,9 @@ static void draw_game(void)
     for (i = g.life; i < 3U; ++i) title[i] = ' ';
     five_digits(title + 6, g.best);
     five_digits(title + 12, g.distance / 2U);
+    /* 创纪录时HI与旧纪录闪烁三次（每半周期6帧），其它HUD保持正常。 */
+    if (g.hi_blink && (((g.hi_blink - 1U) / 6U) & 1U))
+        for (i = 4; i < 11; ++i) title[i] = ' ';
     lv_label_set_text(hud, title);
 
     shift = (int16_t)(g.distance % DINO_GROUND_W);
@@ -142,7 +158,7 @@ static void draw_game(void)
     lv_image_set_src(player, g.dead ? &dino_icon_end :
                      g.y2 < 2 * DINO_Y ? &dino_icon_jump :
                      (g.frame & 4U) ? &dino_icon_run1 : &dino_icon_run0);
-    lv_obj_set_pos(player, DINO_X, g.y2 / 2);
+    lv_obj_set_pos(player, DINO_X, player_screen_y());
     for (i = 0; i < 2U; ++i) {
         if (g.dead) lv_obj_remove_flag(over[i], LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(over[i], LV_OBJ_FLAG_HIDDEN);
@@ -161,10 +177,13 @@ static void frame_tick(lv_timer_t *t)
     sp = world_speed();
     g.distance += sp;
     ++g.frame;
-    if (g.distance / 2U > g.best) g.best = g.distance / 2U;
+    /* 历史最高分直到生命耗尽才更新；首次超越历史纪录闪烁三次。 */
+    if (!g.hi_crossed && g.distance / 2U > g.best) {
+        g.hi_crossed = 1U;
+        g.hi_blink = 36U;
+    }
 
-    /* 最高点 vy2=0 时也必须继续积分，否则会停在空中。
-     * 以 DINO_Y=22 为落地点，上升时允许图案接近屏幕上沿。 */
+    /* 最高点vy2=0时继续积分；维持既有19帧跳跃周期。 */
     if (g.vy2 != 0 || g.y2 < 2 * DINO_Y) {
         g.y2 += g.vy2++;
         if (g.y2 >= 2 * DINO_Y) { g.y2 = 2 * DINO_Y; g.vy2 = 0; }
@@ -175,15 +194,17 @@ static void frame_tick(lv_timer_t *t)
         if (!c->active) continue;
         c->x -= sp;
         if (c->x < -(int16_t)cactus_w[c->type]) { c->active = 0; continue; }
-        /* 与仙人掌的真实 Y 坐标同步；允许 4px 图案空隙容差。
-         * 最高跳幅约 22.5px，四类仙人掌均有可通过的时间窗口。 */
+        /* 碰撞高度与实际显示位置一致，避免已跳过障碍仍被扣命。 */
         if (!c->hit && c->x < DINO_X + 15 &&
-            c->x + cactus_w[c->type] > DINO_X + 1 && g.y2 > DINO_SAFE_Y2) {
+            c->x + cactus_w[c->type] > DINO_X + 1 &&
+            player_screen_y() > DINO_SAFE_Y2 / 2) {
             c->hit = 1;
             if (--g.life == 0) {
                 g.dead = 1;
                 g.y2 = 2 * DINO_Y;
                 g.vy2 = 0;
+                if (g.distance / 2U > g.best) g.best = g.distance / 2U;
+                g.hi_blink = 0;
                 lv_timer_pause(timer);
                 pm_api_set_sleep_block(PM_BLOCK_DINO, 0);
                 break;
@@ -208,7 +229,10 @@ static void frame_tick(lv_timer_t *t)
         for (i = 0; i < DINO_CLOUD_N; ++i) {
             cloud_t *c = &g.cloud[i];
             if (!c->active) continue;
-            if (++c->phase >= c->div) { c->phase = 0; c->x -= sp; }
+            /* 分数速度按帧均摊并保留余数，避免每隔数帧突然跳几像素。 */
+            c->phase += sp;
+            c->x -= c->phase / c->div;
+            c->phase %= c->div;
             if (c->x < -24) c->active = 0;
         }
         g.cloud_gap -= sp;
@@ -217,7 +241,7 @@ static void frame_tick(lv_timer_t *t)
                 cloud_t *c = &g.cloud[i];
                 if (!c->active) {
                     c->active = 1; c->x = DINO_W; c->phase = 0;
-                    c->y = 14U + next_rand() % 11U; /* 14..24，云朵底部不进入地面 */
+                    c->y = (int8_t)((int32_t)(next_rand() % 29U) - 4); /* -4..24：顶端只露4px */
                     c->div = 2U + next_rand() % 3U;
                     break;
                 }
@@ -226,6 +250,7 @@ static void frame_tick(lv_timer_t *t)
         }
     }
     draw_game();
+    if (g.hi_blink) --g.hi_blink;
 }
 static void game_create(void)
 {
