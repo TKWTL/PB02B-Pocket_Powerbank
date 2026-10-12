@@ -268,22 +268,33 @@ static void header_set_text(const char *title)
     const char *text = title ? title : "";
     const unsigned char *p = (const unsigned char *)text;
     uint8_t chars = 0U;
+    const lv_font_t *font = lv_obj_get_style_text_font(s_header, LV_PART_MAIN);
+    lv_point_t size;
     int32_t width = menu_fixed_text_w(s_header, MENU_TEXT_HEADER_CHARS);
     int32_t available = MENU_SCR_W -
                         menu_fixed_text_w(s_item_next, MENU_TEXT_NEXT_CHARS) - 4;
+    int32_t height = lv_font_get_line_height(font);
     if (width > available) width = available;
     if (width < 1) width = 1;
 
-    for (; *p && chars <= MENU_TEXT_HEADER_CHARS; ++p) {
+    for (; *p; ++p) {
         if ((*p & 0xC0U) != 0x80U) ++chars; /* UTF-8 codepoints, not bytes */
+    }
+    if (chars > MENU_TEXT_HEADER_CHARS) {
+        /* LVGL selects vertical scrolling when the text fits in width
+         * but exceeds its height. Force a horizontal overflow instead. */
+        lv_text_get_size(&size, text, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        if (width >= size.x && size.x > 1) width = size.x - 1;
     }
 
     if (strcmp(lv_label_get_text(s_header), text) == 0 &&
-        lv_obj_get_width(s_header) == width) return;
+        lv_obj_get_width(s_header) == width &&
+        lv_obj_get_height(s_header) == height) return;
 
+    lv_obj_set_height(s_header, height);
+    lv_obj_set_width(s_header, width);
     lv_label_set_long_mode(s_header, chars > MENU_TEXT_HEADER_CHARS ?
                            LV_LABEL_LONG_MODE_SCROLL_CIRCULAR : LV_LABEL_LONG_MODE_CLIP);
-    lv_obj_set_width(s_header, width);
     lv_obj_set_style_anim_duration(s_header, MENU_SCROLL_ANIM_TIME, 0);
     lv_label_set_text(s_header, text);
 }
@@ -821,7 +832,8 @@ static void apply_theme(const menu_page_t *pg, uint8_t index)
     lv_obj_set_style_bg_color(s_scr, t->bg, 0);
     lv_obj_set_style_bg_opa(s_scr, LV_OPA_COVER, 0);
     /* 字体：按当前语言统一应用（切语言后 redraw 自动换字体） */
-    lv_obj_set_style_text_font(s_header,     menu_font_small(), 0);
+    if (lv_obj_get_style_text_font(s_header, LV_PART_MAIN) != menu_font_small())
+        lv_obj_set_style_text_font(s_header, menu_font_small(), 0);
     lv_obj_set_style_text_font(s_indicator,  menu_font_small(), 0);
     lv_obj_set_style_text_font(s_item_prev,      menu_font_main(), 0);
     lv_obj_set_style_text_font(s_item_next,      menu_font_main(), 0);

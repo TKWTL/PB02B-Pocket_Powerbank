@@ -426,6 +426,9 @@ void powerdown_task_func(void *pvParameters)
             pm_controller_notify_wake(&s_pm_ctrl);
         } else if (s_transport_req == 0U && sleep_blocked != 0U) {
             pm_controller_resume_idle(&s_pm_ctrl);
+            /* A special mode may start with almost zero idle time left.
+             * Always grant the full configured countdown on release. */
+            pm_controller_refresh_idle(&s_pm_ctrl);
             sleep_blocked = 0;
         }
 
@@ -458,6 +461,9 @@ void powerdown_task_func(void *pvParameters)
         case PM_STATE_DEEPSLEEP:
             pm_sleep_timer_clear_force();   /* 进入休眠分支后无条件清除立刻休眠标志 */
             pm_enter_deep_sleep();
+            /* A WFI wake may arrive without a pending idle refresh.
+             * Renew the timer to prevent sleep/wake loops with stale expiry. */
+            pm_controller_refresh_idle(&s_pm_ctrl);
             vTaskDelay(pdMS_TO_TICKS(10));
             break;
         case PM_STATE_SLEEP_PENDING:

@@ -280,6 +280,25 @@ static void update_battery(void)
     }
 }
 
+/* Dim the tens digit of each displayed time group, or the leading
+ * tens digit of a battery measurement. The five/six visible characters
+ * retain their original monospaced positions; LVGL recolor tags are hidden. */
+static void set_dim_zeros(lv_obj_t *lbl, char *dst, uint32_t capacity,
+                          const char *src, const char *dim_zero, uint8_t time_groups)
+{
+    uint32_t n = 0U;
+    for (uint32_t i = 0U; src[i] != '\0'; ++i) {
+        if (src[i] == '0' && (i == 0U || (time_groups && i == 3U))) {
+            for (const char *p = dim_zero; *p != '\0' && n + 1U < capacity; ++p)
+                dst[n++] = *p;
+        } else if (n + 1U < capacity) {
+            dst[n++] = src[i];
+        }
+    }
+    dst[n] = '\0';
+    lv_label_set_text_static(lbl, dst);
+}
+
 /* ---------- 状态栏：温度（第一行）、ETA（第二行）、时钟（第三行） ----------
  * 【温度格式】t10 = 温度 x10 的整数（0.1°C 分辨率），常态一律保留 1 位小数。
  * 退化阈值放到 ±1000°C（t10 的 ±10000）——那已远超 NTC 物理量程，
@@ -294,7 +313,9 @@ static void update_battery(void)
  * 【ETA】无效显示 --H--；低于1小时显示 mmMss（真实秒数），否则 hhHmm。 */
 static void update_clock_and_temp(void)
 {
-    static char clock_buf[8], temp_buf[12], eta_buf[8];
+    static char clock_buf[40], temp_buf[12], eta_buf[40];
+    char plain[8];
+    uint8_t low_current = SW6306_AlgoGetSpecialMode() == SW6306_SPECIAL_LOW_CURRENT;
     float temp = SW6306_ReadNTCTemp();
     int32_t t10 = (int32_t)(temp * 10.0f + ((temp >= 0.0f) ? 0.5f : -0.5f));
 
@@ -313,28 +334,30 @@ static void update_clock_and_temp(void)
 
     if (SD3078_ReadMonth() >= 1U && SD3078_ReadMonth() <= 12U &&
         SD3078_ReadHour() <= 23U && SD3078_ReadMin() <= 59U) {
-        mini_snprintf(clock_buf, sizeof(clock_buf),
+        mini_snprintf(plain, sizeof(plain),
                       (SD3078_ReadSec() & 1U) ? "%02u %02u" : "%02u:%02u",
                       (unsigned)SD3078_ReadHour(), (unsigned)SD3078_ReadMin());
     } else {
-        mini_snprintf(clock_buf, sizeof(clock_buf), "--:--");
+        mini_snprintf(plain, sizeof(plain), "--:--");
     }
-    lv_label_set_text_static(s_clock, clock_buf);
+    set_dim_zeros(s_clock, clock_buf, sizeof(clock_buf), plain,
+                  "#889498 0#", 1U);
 
     if (s_eta_seconds == MAIN_ETA_INVALID) {
-        lv_label_set_text_static(s_eta, "--H--");
+        mini_snprintf(plain, sizeof(plain), "--H--");
+    } else if (s_eta_seconds < 3600U) {
+        mini_snprintf(plain, sizeof(plain), "%02luM%02lu",
+                      (unsigned long)(s_eta_seconds / 60U),
+                      (unsigned long)(s_eta_seconds % 60U));
     } else {
-        if (s_eta_seconds < 3600U) {
-            mini_snprintf(eta_buf, sizeof(eta_buf), "%02luM%02lu",
-                          (unsigned long)(s_eta_seconds / 60U),
-                          (unsigned long)(s_eta_seconds % 60U));
-        } else {
-            mini_snprintf(eta_buf, sizeof(eta_buf), "%02luH%02lu",
-                          (unsigned long)(s_eta_seconds / 3600U),
-                          (unsigned long)((s_eta_seconds % 3600U) / 60U));
-        }
-        lv_label_set_text_static(s_eta, eta_buf);
+        mini_snprintf(plain, sizeof(plain), "%02luH%02lu",
+                      (unsigned long)(s_eta_seconds / 3600U),
+                      (unsigned long)((s_eta_seconds % 3600U) / 60U));
     }
+    lv_obj_set_style_text_color(s_eta,
+        lv_color_hex(low_current ? 0xF880C8U : 0x88B4D8U), 0);
+    set_dim_zeros(s_eta, eta_buf, sizeof(eta_buf), plain,
+                  low_current ? "#A05480 0#" : "#587890 0#", 1U);
 }
 
 /* ---------- 整屏刷新（500ms，由 s_timer 驱动） ----------
@@ -342,15 +365,14 @@ static void update_clock_and_temp(void)
  *
  * 【改数值精度就改这里的格式串】宽度已按 6 字符留足（48px）：
  *   BAT 功率  "%02lu.%02luW"  → "21.50W"   （0.01W）
- *   BAT 电压  "%lu.%03luV"    → "7.497V"   （0.001V，见下方精度提示）
+ *   BAT 电压  "%02lu.%02luV" → "07.50V"  （0.01V，首位暗零）
  *   BUS 功率  "%02lu.%02luW"  → 0.01W
  *   BUS 电压  "%02lu.%02luV"  → 0.01V
  * 注意先算成"整数个最小单位"再拆整数/小数部分打印——mini_format 不支持 %f
  * （浮点格式化会显著增大固件体积），所以统一走整数运算 + 四舍五入。
  *
- * 【显示分辨率 ≠ 测量分辨率】BAT 电压显示到 1mV，但 SW6306 的电池电压 ADC
- * 原始量化步距是 7mV/LSB（见驱动 ReadVBAT），所以后两位是插值出来的，
- * 不代表真实测量精度。想要真实可信位数就把格式串收回到 0.01V。
+ * 【显示分辨率 ≠ 测量分辨率】BAT 电压显示到 0.01V（10mV），
+ * 接近 SW6306 电池电压的 7mV/LSB 量化步距。
  *
  * 【总线静息判断】IBUS < 5mA 视为无负载，直接把 BUS 功率清零，
  * 避免小电流乘以电压后显示出无意义的零点几瓦。 */
@@ -369,7 +391,7 @@ static void set_bus_value(lv_obj_t *lbl, char *out, uint32_t size,
 
 static void main_refresh(void)
 {
-    static char bus_pw[24], bus_v[24], bat_pw[12], bat_v[12], dir[2];
+    static char bus_pw[24], bus_v[24], bat_pw[24], bat_v[24], dir[2];
     char plain[12];
     /* uW = mV x mA；直接用 V x A 会引入浮点 */
     uint32_t bus_uw = (uint32_t)SW6306_ReadVBUS() * SW6306_ReadIBUS();
@@ -405,10 +427,11 @@ static void main_refresh(void)
 
     /* 电池功率：同样 0.01W 分辨率 */
     centiw = (bat_uw + 5000U) / 10000U;
-    mini_snprintf(bat_pw, sizeof(bat_pw), "%02lu.%02luW",
+    mini_snprintf(plain, sizeof(plain), "%02lu.%02luW",
                   (unsigned long)(centiw / 100U),
                   (unsigned long)(centiw % 100U));
-    lv_label_set_text_static(s_bat_power, bat_pw);
+    set_dim_zeros(s_bat_power, bat_pw, sizeof(bat_pw), plain,
+                  "#586070 0#", 0U);
 
     /* BUS 电压 0.01V：mV → 10mV 单位，+5 再 /10 四舍五入 */
     cv = ((uint32_t)SW6306_ReadVBUS() + 5U) / 10U;
@@ -417,11 +440,13 @@ static void main_refresh(void)
     set_bus_value(s_bus_volt, bus_v, sizeof(bus_v), plain, dim_rgb);
     lv_obj_set_style_text_color(s_bus_volt, lv_color_hex(bus_rgb), 0);
 
-    /* 电池电压直接用 mV（1mV 显示单位），故无需换算 */
-    cv = SW6306_ReadVBAT();
-    mini_snprintf(bat_v, sizeof(bat_v), "%lu.%03luV",
-                  (unsigned long)(cv / 1000U), (unsigned long)(cv % 1000U));
-    lv_label_set_text_static(s_bat_volt, bat_v);
+    /* Battery voltage rounded to 0.01V, aligned with 00.00W above.
+     * A 2S pack has no tens of volts: its "0" stays dark grey. */
+    cv = ((uint32_t)SW6306_ReadVBAT() + 5U) / 10U;
+    mini_snprintf(plain, sizeof(plain), "%02lu.%02luV",
+                  (unsigned long)(cv / 100U), (unsigned long)(cv % 100U));
+    set_dim_zeros(s_bat_volt, bat_v, sizeof(bat_v), plain,
+                  "#586070 0#", 0U);
 
     /* 方向箭头：'>' 充电（流入电池）、'<' 放电；空闲时置空串即不画。
      * 标签位置固定，空串也不会影响其它元素排版。 */
@@ -496,7 +521,7 @@ static void main_screen_create(void)
      * 空闲时不画箭头（空串）但保留对象，避免影响其它元素排版。 */
     s_dir       = make_label(55,  MAIN_ROW_TOP, 8, LV_TEXT_ALIGN_CENTER);
     /* 电池栏两行：x62 起、宽 48 = 6 字符，居中于电池图标（x68..107）上方。
-     * 6 字符正好容纳 "21.50W" / "7.497V" 这类最高精度格式。
+     * 6 字符正好容纳 "21.50W" / "07.50V" 这类对齐格式。
      * 文字实际只占约 x71..104（居中），与箭头墨迹(x57..60)不相撞；
      * 若以后把文案改成左对齐或加长到 6 字符以上，需重新核对。 */
     s_bat_power = make_label(62,  MAIN_ROW_MID, 48, LV_TEXT_ALIGN_CENTER);
@@ -522,6 +547,10 @@ static void main_screen_create(void)
     lv_label_set_recolor(s_port, true);      /* A/C端口着色 */
     lv_label_set_recolor(s_bus_power, true); /* BUS十位前导0低饱和 */
     lv_label_set_recolor(s_bus_volt, true);
+    lv_label_set_recolor(s_bat_power, true);
+    lv_label_set_recolor(s_bat_volt, true);
+    lv_label_set_recolor(s_clock, true);
+    lv_label_set_recolor(s_eta, true);
 
     /* 电量填充条：先在底层画，再由上面的 A8 轮廓图盖出边框效果。
      * 初始宽 0、右对齐到主体右端，实际尺寸每次刷新由 update_battery() 设定。 */
