@@ -129,6 +129,12 @@ static const menu_tr_t menu_tr_table[] = {
     { "AFC in", "AFC 输入" },
     { "SCP out", "SCP 输出" },
     { "SCP in", "SCP 输入" },
+    /* 为后续协议策略预留翻译，不在当前菜单增加功能入口 */
+    { "High Voltage SCP", "高压SCP" },
+    { "Low Voltage SCP", "低压SCP" },
+    { "PD Yield to SCP", "PD让位SCP" },
+    { "PD Yield to VOOC", "PD让位VOOC" },
+    { "PD Yield to UFCS", "PD让位UFCS" },
     { "VOOC out", "VOOC 输出" },
     { "VOOC in", "VOOC 输入" },
     /* PowerBank → PowerLimit */

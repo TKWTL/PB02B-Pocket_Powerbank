@@ -104,7 +104,7 @@ def pack_glyph(g: dict) -> bytes:
     return bytes(b)
 
 
-def emit_c(characters: str, glyphs: dict, ascent: int, descent: int, name: str, metrics: str):
+def emit_c(characters: str, glyphs: dict, ascent: int, descent: int, name: str, metrics: str, baseline_shift: int = 2):
     cp_sorted = sorted(map(ord, characters))
     data = bytearray()
     descriptions = []
@@ -126,6 +126,8 @@ def emit_c(characters: str, glyphs: dict, ascent: int, descent: int, name: str, 
         descent = max((-g["bbx"][3] for g in glyphs.values()), default=0)
         ascent = max(ascent, 1)
         descent = max(descent, 0)
+    if baseline_shift < 0 or baseline_shift > descent:
+        raise ValueError(f"invalid baseline_shift={baseline_shift} for descent={descent}")
     first = 32
     ascii_cps = list(range(32,127))
     assert cp_sorted[:len(ascii_cps)] == ascii_cps
@@ -138,7 +140,7 @@ def emit_c(characters: str, glyphs: dict, ascent: int, descent: int, name: str, 
         '/* AUTO-GENERATED. DO NOT EDIT.',
         ' * Source: Fusion Pixel Font 12px Proportional zh-Hans BDF (SIL OFL 1.1).',
         ' * Native BDF pixels -> 1bpp; no anti-alias, no resize, no compression.',
-        f' * Line box: {ascent+descent}px; baseline descent: {descent}px ({metrics} metrics).',
+        f' * Line box: {ascent+descent}px; baseline descent: {descent-baseline_shift}px ({metrics} metrics, shift +{baseline_shift}px).',
         ' * Keep upstream font license/attribution when redistributing this derivative.',
         ' */',
         '#include "lvgl.h"',
@@ -174,7 +176,7 @@ def emit_c(characters: str, glyphs: dict, ascent: int, descent: int, name: str, 
               '    .get_glyph_dsc=lv_font_get_glyph_dsc_fmt_txt,',
               '    .get_glyph_bitmap=lv_font_get_bitmap_fmt_txt,',
               f'    .line_height={ascent+descent},',
-              f'    .base_line={descent},',
+              f'    .base_line={descent-baseline_shift},',
               '    .subpx=LV_FONT_SUBPX_NONE,',
               '    .underline_position=-2, .underline_thickness=1,',
               '    .static_bitmap=0, .dsc=&font_dsc,',
@@ -193,12 +195,14 @@ def main():
     p.add_argument('--name',default=DEFAULT_NAME)
     p.add_argument('--metrics', choices=['compact','native'], default='compact',
                    help='compact: 12px line box for current subset; native: 16px BDF line box')
+    p.add_argument('--baseline-shift', type=int, default=2,
+                   help='Move glyphs down by 2px visually (LVGL base_line 2->0 for compact metrics)')
     p.add_argument('--charset-output', type=Path, help='optional extracted subset snapshot text output')
     args=p.parse_args()
     source = None if args.charset else (args.source or Path('firmware/Applications/menu/menu_pages.c'))
     chars, entries = required_chars(source, args.charset)
     glyphs,asc,desc=parse_bdf(args.bdf,chars)
-    code,nbytes,nglyphs,inkh=emit_c(chars,glyphs,asc,desc,args.name,args.metrics)
+    code,nbytes,nglyphs,inkh=emit_c(chars,glyphs,asc,desc,args.name,args.metrics,args.baseline_shift)
     if args.charset_output:
         args.charset_output.parent.mkdir(parents=True,exist_ok=True)
         args.charset_output.write_text(chars,encoding='utf-8')
