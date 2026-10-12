@@ -262,7 +262,7 @@ static int32_t s_wake_home_idx = 2;         /* 唤醒回主页：默认 DeepSlee
 static uint8_t s_auto_flip = 0;
 
 /* Pickup/Motion Wake 开关状态直接存放在 SC7A20_AlgoConfig 中：
- * 菜单只改RAM变量，具体休眠时保留10Hz还是Power-down由SC7A20算法PM回调决定。 */
+ * 菜单只改RAM变量，具体休眠时25Hz监测或Power-down由SC7A20算法PM回调决定。 */
 
 /* 占位动作：用于"界面先立起来、功能待接入"的条目（Sleep & Wake / System 里若干项）。
  * 用 ACTION 而非 INFO，是为了保留"可执行条目"的形态与位置；功能接入时把对应
@@ -366,7 +366,7 @@ menu_page_t menu_page_sos, menu_page_screen_test_confirm, menu_page_accel_calibr
 menu_page_t menu_page_status;      /* ui_task 用 &menu_page_status 判断当前页 */
 menu_page_t menu_page_status_battery, menu_page_status_accel, menu_page_status_timer;
 menu_page_t menu_page_protocol1, menu_page_protocol2, menu_page_powerlimit;
-menu_page_t menu_page_tools, menu_page_games, menu_page_about;
+menu_page_t menu_page_tools, menu_page_about;
 
 /* ==================== 显示页（Display，三级，归拢显示相关项） ==================== */
 static const menu_item_t menu_items_display[] = {
@@ -383,7 +383,7 @@ static const menu_item_t menu_items_display[] = {
 MENU_PAGE_("Display", menu_page_display, menu_items_display);
 
 /* ==================== 休眠与唤醒页（Sleep & Wake，三级） ====================
- * Pickup/Motion Wake 仍控制DeepSleep时SC7A20是否保留10Hz；
+ * Pickup/Motion Wake 控制DeepSleep时SC7A20是否保留25Hz采样；
  * Home Delay控制一次DeepSleep持续多久后，唤醒先显示主屏而保留原菜单现场。 */
 static const menu_item_t menu_items_sleep_wake[] = {
     MENU_ITEM_BACK_("Return"),
@@ -902,13 +902,6 @@ static const menu_item_t menu_items_tools[] = {
 };
 MENU_PAGE_("Tools", menu_page_tools, menu_items_tools);
 
-/* ==================== 小恐龙游戏页（素材已就绪，逻辑尚未移植） ==================== */
-static const menu_item_t menu_items_games[] = {
-    MENU_ITEM_BACK_("Return"),
-    MENU_ITEM_INFO_("Dino Game"), /* 游戏运行入口将在下一阶段替换 */
-};
-MENU_PAGE_("Dino Game", menu_page_games, menu_items_games);
-
 /* ==================== About WORD_INFO ====================
  * 3行窗口，PREV/NEXT有边界滚动，CONF返回根ICON页。 */
 static const char * const word_about[] = {
@@ -931,7 +924,7 @@ static const menu_item_t menu_items_root[] = {
     MENU_ITEM_PAGE_("Settings", &menu_page_settings),
     MENU_ITEM_PAGE_("Status",   &menu_page_status),
     MENU_ITEM_PAGE_("Tools",    &menu_page_tools),
-    MENU_ITEM_PAGE_("Dino Game", &menu_page_games),
+    MENU_ITEM_APP_("Dino Game", &menu_app_dino),
     MENU_ITEM_PAGE_("About",    &menu_page_about),
 };
 

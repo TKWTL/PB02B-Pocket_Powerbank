@@ -7,13 +7,13 @@
  *   - main_screen.c   主界面（待机信息屏）创建/显示
  *   - reset.c         系统复位与运输模式
  *   - leveler.c       水平仪（预备，目前无运行逻辑）
- *   - dinosaur_game.c 小恐龙游戏（预备，目前无运行逻辑）
- *   - dinosaur_icon.c 小恐龙图形资源（预备，目前不含位图）
+ *   - dinosaur_game.c 小恐龙游戏（退出保留进度的LVGL应用）
+ *   - dinosaur_icon.c 小恐龙XBM转A8图形资源
  *
  * 新增功能函数步骤：
  *  1. 新建对应的 <功能>.c/.h 并保持同名（如 leveler.c/.h）；
  *  2. 在本头文件声明；
- *  3. 在 menu_pages.c 用 MENU_ITEM_ACTION_("名称", 函数名) 挂载；
+ *  3. 一次性动作使用 MENU_ITEM_ACTION_，全屏应用使用 MENU_ITEM_APP_；
  *  4. 在 Keil 工程 Functions group 加入新 .c。
  */
 #ifndef FUNCTIONS_H
