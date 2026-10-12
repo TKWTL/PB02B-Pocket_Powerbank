@@ -1,4 +1,4 @@
-/* leveler.c - iOS7风格水平仪，160x40：左88px图形，右64px数据。
+/* leveler.c - iOS7风格水平仪，160x40：左104px图形，右56px数据。
  * SC7A20仅由load_task读I2C，UI消费经六面校准的镜像。
  * X≈-1g：横地平线；Y≈+1g：左白右黑的竖地平线；
  * Z≈-1g：白色双圆交叠（重叠部分为黑），全程仅使用黑白。
@@ -10,11 +10,11 @@
 #include <math.h>
 #include <string.h>
 
-#define LEVEL_W           88
+#define LEVEL_W           104
 #define LEVEL_H           40
 #define LEVEL_PIXELS      (LEVEL_W * LEVEL_H) /* A8: 3520字节；绘制器已支持A8 */
 #define LEVEL_PERIOD_MS   40U            /* UI 25FPS，LOAD 25Hz */
-#define LEVEL_R           9              /* 铅锤双圆半径 */
+#define LEVEL_R           12             /* 铅锤双圆半径12px */
 
 static lv_obj_t *s_screen, *s_canvas, *s_label[4], *s_degree;
 static lv_timer_t *s_timer;
@@ -44,52 +44,58 @@ static void tick_pixel(uint8_t x, uint8_t y)
 /* 横向地平线：重力投影决定旋转方向（不再叠加一遍显示角），
  * Z分量决定线心离屏幕中心的距离：抬头/低头时线心上下移动。
  * X=-1g → 上黑下白；Y=+1g → 左白右黑。 */
+/* X=-1g上白下黑，Y=+1g左白右黑；修正旧法向量的X符号。 */
 static void render_graphics(float xg, float yg, float zg, float plumb_deg)
 {
     int16_t x, y;
     float h = sqrtf(xg * xg + yg * yg);
-    /* 旧帧内容全部丢弃；包括双圆相交区域和移动中的地平线。 */
+    /* 每帧全清A8画布，地平线/双圆相交时不会残留旧图像。 */
     memset(s_canvas_buf, 0, sizeof(s_canvas_buf));
     if (s_mode == 2U) {
-        /* 45°时双圆近似相切；靠近Z轴时两圆沿倾斜方向渐渐重合。
-         * 完全重合时使用异或着色，重合部分变黑。 */
+        /* 双圆的连线相对旧版旋转90°，垂直于XY重力方向。
+         * 45°时分离、靠近Z轴时逐渐完全重合；防止上下边界裁切。 */
         float gap = plumb_deg * (2.0f * LEVEL_R) / 45.0f;
         float dx = 0.0f, dy = 0.0f;
         int16_t x1, y1, x2, y2;
         if (gap > 2.0f * LEVEL_R) gap = 2.0f * LEVEL_R;
         if (h > 0.0001f) {
-            dx = gap * xg / h;
-            dy = gap * yg / h;
+            float ux = -yg / h, uy = xg / h;
+            float max_y_gap = LEVEL_H - 1.0f - 2.0f * LEVEL_R;
+            if (fabsf(uy) * gap > max_y_gap)
+                gap = max_y_gap / fabsf(uy);
+            dx = gap * ux;
+            dy = gap * uy;
         }
-        x1 = (int16_t)(44.0f - dx * 0.5f);
-        y1 = (int16_t)(20.0f - dy * 0.5f);
-        x2 = (int16_t)(44.0f + dx * 0.5f);
-        y2 = (int16_t)(20.0f + dy * 0.5f);
+        /* 圆心使用双倍像素坐标，以半像素中心画24px直径的圆。 */
+        x1 = (LEVEL_W - 1) - (int16_t)roundf(dx);
+        y1 = (LEVEL_H - 1) - (int16_t)roundf(dy);
+        x2 = (LEVEL_W - 1) + (int16_t)roundf(dx);
+        y2 = (LEVEL_H - 1) + (int16_t)roundf(dy);
         for (y = 0; y < LEVEL_H; ++y) {
             for (x = 0; x < LEVEL_W; ++x) {
-                int32_t a = (x - x1) * (x - x1) + (y - y1) * (y - y1);
-                int32_t b = (x - x2) * (x - x2) + (y - y2) * (y - y2);
-                if ((a <= LEVEL_R * LEVEL_R) != (b <= LEVEL_R * LEVEL_R))
+                int32_t a = (2*x-x1)*(2*x-x1) + (2*y-y1)*(2*y-y1);
+                int32_t b = (2*x-x2)*(2*x-x2) + (2*y-y2)*(2*y-y2);
+                if ((a < 4*LEVEL_R*LEVEL_R) !=
+                    (b < 4*LEVEL_R*LEVEL_R))
                     pixel((uint8_t)x, (uint8_t)y);
             }
         }
     } else if (h > 0.0001f) {
-        /* 归一化投影方向：X→Y轴旋转只影响一次画面角度。
-         * 垂直屏面倾角zg控制地平线偏移；不再强制经过屏幕中心。 */
-        float nx = -yg / h, ny = -xg / h;
+        /* Z分量改变地平线位置，不强制分界线通过画布中心。 */
+        float nx = -yg / h, ny = xg / h;
         float offset = 17.0f * zg;
         for (y = 0; y < LEVEL_H; ++y) {
             for (x = 0; x < LEVEL_W; ++x) {
-                float f = nx * (x - 43.5f) + ny * (y - 19.5f) + offset;
+                float f = nx * (x - (LEVEL_W-1)*0.5f) +
+                          ny * (y - (LEVEL_H-1)*0.5f) + offset;
                 if (f >= 0.0f) pixel((uint8_t)x, (uint8_t)y);
             }
         }
-        /* 画面两端固定短划线，与地平线分离，用于识别水平位置。 */
+        /* 两侧短划线固定在中线，随黑白背景反色。 */
         for (x = 4; x <= 12; ++x) tick_pixel((uint8_t)x, 20U);
         for (x = LEVEL_W - 13; x < LEVEL_W - 4; ++x)
             tick_pixel((uint8_t)x, 20U);
     }
-    /* 同帧全区域失效重绘：A8透明边缘、交叠圆与刻线不会残留。 */
     lv_obj_invalidate(s_screen);
 }
 
@@ -188,7 +194,7 @@ static void level_create(void)
     lv_obj_set_scrollbar_mode(s_screen, LV_SCROLLBAR_MODE_OFF);
 
     s_canvas = lv_canvas_create(s_screen);
-    /* 直接用A8源像素（尺寸88x40），配白色image_recolor。
+    /* 直接用A8源像素（尺寸104x40），配白色image_recolor。
      * A8=0透出黑色底板，A8=255显示纯白，不需要调色板。 */
     lv_draw_buf_init(&s_canvas_draw_buf, LEVEL_W, LEVEL_H, LV_COLOR_FORMAT_A8,
                      LEVEL_W, s_canvas_buf, sizeof(s_canvas_buf));
@@ -197,11 +203,11 @@ static void level_create(void)
     lv_obj_set_style_image_recolor_opa(s_canvas, LV_OPA_COVER, 0);
     lv_obj_set_pos(s_canvas, 0, 0);
 
-    /* 数字区固定黑底，左右图形不侵入；4×9px行高适配40px屏。 */
+    /* 数据区7字符×8px恰好56px，固定黑底与图形区拼接。 */
     for (i = 0U; i < 4U; ++i) {
         s_label[i] = lv_label_create(s_screen);
-        lv_obj_set_pos(s_label[i], 96, 1 + 10 * i);
-        lv_obj_set_size(s_label[i], 64, 9);
+        lv_obj_set_pos(s_label[i], LEVEL_W, 1 + 10 * i);
+        lv_obj_set_size(s_label[i], 160 - LEVEL_W, 9);
         lv_obj_set_style_pad_all(s_label[i], 0, 0);
         lv_obj_set_style_bg_opa(s_label[i], LV_OPA_COVER, 0);
         lv_obj_set_style_bg_color(s_label[i], lv_color_black(), 0);
@@ -213,7 +219,7 @@ static void level_create(void)
     /* UNSCII-8仅覆盖ASCII，角度符号单独使用4px白色细圆环。 */
     s_degree = lv_obj_create(s_screen);
     lv_obj_set_size(s_degree, 4, 4);
-    lv_obj_set_pos(s_degree, 145, 31);
+    lv_obj_set_pos(s_degree, LEVEL_W + 49, 31);
     lv_obj_set_style_radius(s_degree, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_border_width(s_degree, 1, 0);
     lv_obj_set_style_border_color(s_degree, lv_color_white(), 0);
