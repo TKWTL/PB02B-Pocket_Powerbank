@@ -15,6 +15,8 @@
 #define LEVEL_PIXELS      (LEVEL_W * LEVEL_H) /* A8: 3520字节；绘制器已支持A8 */
 #define LEVEL_PERIOD_MS   40U            /* UI 25FPS，LOAD 25Hz */
 #define LEVEL_R           12             /* 铅锤双圆半径12px */
+#define LEVEL_PLUMB_ENTER 43.0f          /* 从水平进入铅锤：偏离Z轴<=43° */
+#define LEVEL_PLUMB_EXIT  47.0f          /* 从铅锤返回水平：偏离Z轴>=47° */
 
 static lv_obj_t *s_screen, *s_canvas, *s_label[4], *s_degree;
 static lv_timer_t *s_timer;
@@ -41,10 +43,8 @@ static void tick_pixel(uint8_t x, uint8_t y)
     ((uint8_t *)s_canvas_buf)[(uint16_t)y * LEVEL_W + x] ^= 255U;
 }
 
-/* 横向地平线：重力投影决定旋转方向（不再叠加一遍显示角），
- * Z分量决定线心离屏幕中心的距离：抬头/低头时线心上下移动。
- * X=-1g → 上黑下白；Y=+1g → 左白右黑。 */
-/* X=-1g上白下黑，Y=+1g左白右黑；修正旧法向量的X符号。 */
+/* X=-1g上白下黑、Y=+1g左白右黑。地平线随Z偏移；
+ * 铅锤双圆沿垂直于XY重力方向分离；两种视图均整幅重绘。 */
 static void render_graphics(float xg, float yg, float zg, float plumb_deg)
 {
     int16_t x, y;
@@ -54,10 +54,11 @@ static void render_graphics(float xg, float yg, float zg, float plumb_deg)
     if (s_mode == 2U) {
         /* 双圆的连线相对旧版旋转90°，垂直于XY重力方向。
          * 45°时分离、靠近Z轴时逐渐完全重合；防止上下边界裁切。 */
-        float gap = plumb_deg * (2.0f * LEVEL_R) / 45.0f;
+        /* 分离速度加倍：同一铅锤角对应两倍圆心间距。 */
+        float gap = plumb_deg * (4.0f * LEVEL_R) / 45.0f;
         float dx = 0.0f, dy = 0.0f;
         int16_t x1, y1, x2, y2;
-        if (gap > 2.0f * LEVEL_R) gap = 2.0f * LEVEL_R;
+        if (gap > 4.0f * LEVEL_R) gap = 4.0f * LEVEL_R;
         if (h > 0.0001f) {
             float ux = -yg / h, uy = xg / h;
             float max_y_gap = LEVEL_H - 1.0f - 2.0f * LEVEL_R;
@@ -83,7 +84,7 @@ static void render_graphics(float xg, float yg, float zg, float plumb_deg)
     } else if (h > 0.0001f) {
         /* Z分量改变地平线位置，不强制分界线通过画布中心。 */
         float nx = -yg / h, ny = xg / h;
-        float offset = 17.0f * zg;
+        float offset = 34.0f * zg; /* 地平线中点偏移加倍 */
         for (y = 0; y < LEVEL_H; ++y) {
             for (x = 0; x < LEVEL_W; ++x) {
                 float f = nx * (x - (LEVEL_W-1)*0.5f) +
@@ -134,7 +135,7 @@ static void print_angle(float angle)
 
 static void level_tick(lv_timer_t *timer)
 {
-    float x, y, z, angle, h;
+    float x, y, z, angle, h, plumb_deg;
     uint32_t seq;
     (void)timer;
     if (!SC7A20_AlgoLevelerGet(&x, &y, &z, &seq)) return;
@@ -149,19 +150,27 @@ static void level_tick(lv_timer_t *timer)
     }
     x = s_ax * 0.001f; y = s_ay * 0.001f; z = s_az * 0.001f;
 
-    /* Z与屏幕平面重力分量等大即45°：水平地平线↔铅锤双圆。
-     * 只用同一组重力分量求方向与角度，不随X/Y切换叠加角度。 */
+    /* 45°中心、总宽4°回差：水平→铅锤47°，铅锤→水平43°。
+     * plumb_deg 是与Z轴夹角，所以两种转换条件方向相反：
+     * 水平模式在夹角降到43°进入铅锤，铅锤模式升到47°退出。 */
     h = sqrtf(x * x + y * y);
-    if (fabsf(z) >= h) {
+    plumb_deg = atan2f(h, fabsf(z)) * s_to_deg;
+    if (s_mode == 2U) {
+        if (plumb_deg >= LEVEL_PLUMB_EXIT)
+            s_mode = fabsf(y) > fabsf(x) ? 1U : 0U;
+    } else if (plumb_deg <= LEVEL_PLUMB_ENTER) {
         s_mode = 2U;
-        angle = atan2f(h, fabsf(z)) * s_to_deg; /* Z轴铅锤偏差 */
     } else {
         s_mode = fabsf(y) > fabsf(x) ? 1U : 0U;
-        /* 水平偏差在X/Y两个正交基准下取最近方向，避免累计成双倍角。 */
+    }
+    if (s_mode == 2U) {
+        angle = plumb_deg;
+    } else {
+        /* 水平偏差沿最近的X/Y轴取值，不产生双倍角。 */
         angle = (s_mode == 0U ? atan2f(fabsf(y), fabsf(x)) :
                  atan2f(fabsf(x), fabsf(y))) * s_to_deg;
     }
-    render_graphics(x, y, z, angle);
+    render_graphics(x, y, z, plumb_deg);
     print_g(0U, 'X', x); print_g(1U, 'Y', y); print_g(2U, 'Z', z);
     print_angle(angle);
     /* 角度符号始终白色，不随平衡状态变色。 */
