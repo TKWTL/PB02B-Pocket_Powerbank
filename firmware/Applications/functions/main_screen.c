@@ -513,7 +513,7 @@ static void main_screen_create(void)
     lv_obj_set_pos(frame, 3, 0);
     lv_obj_set_size(frame, 51, MAIN_LBL_H);
     lv_obj_set_style_radius(frame, 3, 0);
-    lv_obj_set_style_bg_color(frame, lv_color_hex(0x70DCE8), 0);
+    lv_obj_set_style_bg_color(frame, lv_color_hex(0x70E0E8), 0);
     lv_obj_set_style_bg_opa(frame, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_all(frame, 0, 0);
     lv_obj_remove_flag(frame, LV_OBJ_FLAG_SCROLLABLE);
@@ -599,18 +599,13 @@ static void main_screen_create(void)
     lv_obj_add_flag(s_tab, LV_OBJ_FLAG_HIDDEN);   /* 默认隐藏，由刷新逻辑按需显示 */
 
     /* 百分号：最后创建 => 位于最上层，不会被电量条盖住。
-     * 独立对象，水平居中于图标主体（宽 40）。
-     * 位置 = 图标左上角 + (1, -1)：即比图标原点右移 1px、上移 1px。
-     * 字体行盒 14px 而其墨迹只占第 2..11 行，故 y=-1 时墨迹落在 y1..y10。
-     * 【位置唯一来源】本文件只有两处动画：500ms 渐进电量条（只改 s_bar 尺寸）
-     * 与低电闪烁（只切 s_pct 的 HIDDEN 标志），都不改位置——所以调 X/Y 只需改
-     * 这一行，动画会自动跟随同一个对象。 */
+     * 独立对象，水平居中于图标主体（宽 40）。 */
     s_pct = lv_label_create(s_scr);
     lv_obj_set_style_pad_all(s_pct, 0, 0);
     lv_obj_set_style_text_font(s_pct, menu_font_main(), 0);
     lv_obj_set_style_text_color(s_pct, lv_color_hex(0x000000), 0);
     lv_obj_set_size(s_pct, 40, MAIN_LBL_H);
-    lv_obj_set_pos(s_pct, MAIN_BAT_X + 1, -1);
+    lv_obj_set_pos(s_pct, MAIN_BAT_X + 1, 0);
     lv_obj_set_style_text_align(s_pct, LV_TEXT_ALIGN_CENTER, 0);
 
     /* ETA 状态机复位：首帧必然显示无效，等稳定 5s 后才有值 */
