@@ -21,7 +21,7 @@
 #define DINO_TICK_MS        33
 #define DINO_CACTUS_N        3
 #define DINO_CLOUD_N         3
-#define DINO_SKY_FADE_FRAMES 120U   /* 4s渐变，约30FPS */
+#define DINO_SKY_FADE_FRAMES 42U    /* 42×33ms≈1.39s渐变 */
 #define DINO_SKY_WAIT_MIN    120U   /* 4s后最早开始下一次切换 */
 #define DINO_SKY_WAIT_RAND   300U   /* 每局随机等待4~14s */
 
@@ -33,7 +33,7 @@ static struct {
     int8_t vy2;                       /* 半像素/帧；重力为 +1 */
     uint16_t sky_wait;
     int8_t sky_step;             /* -1 向夜，+1 向昼，0 保持 */
-    uint8_t sky_level;           /* 0=夜，120=昼；不参与游戏物理 */
+    uint8_t sky_level;           /* 0=夜，DINO_SKY_FADE_FRAMES=昼；不参与游戏物理 */
     uint8_t life, dead, ready, frame, hi_crossed, hi_blink;
     cactus_t cactus[DINO_CACTUS_N];
     cloud_t cloud[DINO_CLOUD_N];
@@ -182,15 +182,15 @@ static void draw_game(void)
     };
     uint8_t i;
     int16_t shift;
-    char title[] = "*** HI00000 00000"; /* 17字 × 8px = 136px，右对齐 */
+    char title[] = "*** HI 00000  00000"; /* 19字 × 8px = 152px，右对齐 */
     if (!screen) return;
     update_palette();
     for (i = g.life; i < 3U; ++i) title[i] = ' ';
-    five_digits(title + 6, g.best);
-    five_digits(title + 12, g.distance / 2U);
+    five_digits(title + 7, g.best);
+    five_digits(title + 14, g.distance / 2U);
     /* 创纪录时HI与旧纪录闪烁三次（每半周期6帧），其它HUD保持正常。 */
     if (g.hi_blink && (((g.hi_blink - 1U) / 6U) & 1U))
-        for (i = 4; i < 11; ++i) title[i] = ' ';
+        for (i = 4; i < 12; ++i) title[i] = ' ';
     lv_label_set_text(hud, title);
 
     shift = (int16_t)(g.distance % DINO_GROUND_W);
@@ -333,7 +333,7 @@ static void game_create(void)
     for (i = 0; i < DINO_CLOUD_N; ++i) cloud_img[i] = sprite(&dino_icon_cloud);
     for (i = 0; i < DINO_CACTUS_N; ++i) cactus_img[i] = sprite(&dino_icon_cactus0);
     player = sprite(&dino_icon_run0);
-    hud = label("*** HI00000 00000", 24, 0, 136);
+    hud = label("*** HI 00000  00000", 8, 0, 152);
     lv_obj_set_style_text_font(hud, &lv_font_unscii_8, 0);
     lv_obj_set_height(hud, 9); /* UNSCII-8 行高9，字宽8；17字符仍为136px */
     over[0] = label("GAME OVER", 80, 13, 80);
