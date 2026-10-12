@@ -1266,7 +1266,7 @@
             <File>
               <FileName>lv_font_unscii_8.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\\..\\Applications\\LVGL\\src\\font\\lv_font_unscii_8.c</FilePath>
+              <FilePath>..\..\Applications\LVGL\src\font\lv_font_unscii_8.c</FilePath>
             </File>
             <File>
               <FileName>font-terminus-u14b.c</FileName>
