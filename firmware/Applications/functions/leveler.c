@@ -56,7 +56,7 @@ static void render_graphics(float xg, float yg, float zg, float plumb_deg)
            sizeof(s_canvas_buf));
     if (s_mode == 2U) {
         /* 双圆的连线相对旧版旋转90°，垂直于XY重力方向。
-         * 45°时分离、靠近Z轴时逐渐完全重合；防止上下边界裁切。 */
+         * 45°时分离、靠近Z轴时逐渐完全重合；允许圆从屏幕外移入。 */
         /* 分离速度加倍：同一铅锤角对应两倍圆心间距。 */
         float gap = plumb_deg * (4.0f * LEVEL_R) / 45.0f;
         float dx = 0.0f, dy = 0.0f;
@@ -64,9 +64,6 @@ static void render_graphics(float xg, float yg, float zg, float plumb_deg)
         if (gap > 4.0f * LEVEL_R) gap = 4.0f * LEVEL_R;
         if (h > 0.0001f) {
             float ux = -yg / h, uy = xg / h;
-            float max_y_gap = LEVEL_H - 1.0f - 2.0f * LEVEL_R;
-            if (fabsf(uy) * gap > max_y_gap)
-                gap = max_y_gap / fabsf(uy);
             dx = gap * ux;
             dy = gap * uy;
         }
