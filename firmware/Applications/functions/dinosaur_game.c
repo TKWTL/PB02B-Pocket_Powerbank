@@ -22,8 +22,8 @@
 #define DINO_CACTUS_N        3
 #define DINO_CLOUD_N         3
 #define DINO_SKY_FADE_FRAMES 42U    /* 42×33ms≈1.39s渐变 */
-#define DINO_SKY_WAIT_MIN    120U   /* 4s后最早开始下一次切换 */
-#define DINO_SKY_WAIT_RAND   300U   /* 每局随机等待4~14s */
+#define DINO_SKY_WAIT_MIN    1200U  /* 最短：原120帧×10 = 39.6s */
+#define DINO_SKY_WAIT_RAND   7181U  /* 最长：1200+7180=8380帧，原419帧×20 */
 
 typedef struct { int16_t x; uint8_t type, active, hit; } cactus_t;
 typedef struct { int16_t x; int8_t y; uint8_t div, phase, active; } cloud_t;
@@ -291,10 +291,11 @@ static void frame_tick(lv_timer_t *t)
         for (i = 0; i < DINO_CLOUD_N; ++i) {
             cloud_t *c = &g.cloud[i];
             if (!c->active) continue;
-            /* 分数速度按帧均摊并保留余数，避免每隔数帧突然跳几像素。 */
+            /* 速度为原来一半；保留子像素余数，已有云朵也立即生效。 */
+            uint8_t div = (uint8_t)(c->div << 1);
             c->phase += sp;
-            c->x -= c->phase / c->div;
-            c->phase %= c->div;
+            c->x -= c->phase / div;
+            c->phase %= div;
             if (c->x < -24) c->active = 0;
         }
         g.cloud_gap -= sp;
