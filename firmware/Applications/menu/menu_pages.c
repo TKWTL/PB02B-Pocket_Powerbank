@@ -48,7 +48,7 @@ char menu_status_bat[24] = "--.-V --.-A";
  *   → Display → Sleep & Wake → System(Clock/Language/Factory Option/Reset) → toggle/ENUM 取值
  * 表中仅保留需要中文替换的文案；中英文相同的字符串不入表，
  * 否则中文态会显示英文（menu_tr 的回退行为）。
- * 中文字库（14/12px 部分字符集）待全部文案确认后生成，生成前切中文缺字形。 */
+ * 中文字体为按本表提取的 lv_font_menucn_12，默认中文。 */
 static const menu_tr_t menu_tr_table[] = {
     /* ---- 根图标页 ---- */
     { "Menu", "菜单" },
@@ -196,7 +196,7 @@ static const menu_tr_t menu_tr_table[] = {
 };
 
 /* 当前语言（渲染层状态；切语言后调用 menu_notify_changed() 重绘即生效） */
-static menu_lang_t s_menu_lang = MENU_LANG_EN;
+static menu_lang_t s_menu_lang = MENU_LANG_ZH;
 
 static const char *menu_tr_key(const char *key)
 {
@@ -238,17 +238,17 @@ const char *menu_tr(const char *key)
     return menu_tr_key(key);
 }
 
-/* 按语言返回字体（全局共享：菜单渲染 + 主界面都用）。
- * 中文字库（14/12px 部分字符集）待全部文案确认后生成——
- * TODO：生成 lv_font_menucn_14 / lv_font_menucn_12 后，中文态分别返回它们。 */
+/* 菜单中文用12px子集，英文保持原字号；主屏数值另用等宽字体。 */
 const lv_font_t *menu_font_main(void)
 {
-    return &lv_font_ter_u14b;
+    return (s_menu_lang == MENU_LANG_ZH) ?
+           &lv_font_menucn_12 : &lv_font_ter_u14b;
 }
 
 const lv_font_t *menu_font_small(void)
 {
-    return &lv_font_montserrat_12;
+    return (s_menu_lang == MENU_LANG_ZH) ?
+           &lv_font_menucn_12 : &lv_font_montserrat_12;
 }
 
 /* ==================== 显示页（Display，三级，归拢显示相关项） ==================== */

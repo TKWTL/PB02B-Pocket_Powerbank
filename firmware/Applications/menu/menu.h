@@ -256,7 +256,7 @@ void menu_page_set_head_x(int16_t x);
  * 保持英文（同时就是字符串键），menu_tr(key) 按当前语言返回显示文本：
  *  - 英文态直接返回 key，不查表；
  *  - 中文态查表返回 zh，未配置的键回退 key 本身。
- * 中文字库（14/12px 部分字符集）待全部文案确认后生成，生成前切中文缺字形。 */
+ * 中文子集字体已接入；默认中文，设置页可切换英文。 */
 typedef struct {
     const char *key;   /* 字符串键，同时就是英文显示文本 */
     const char *zh;    /* 中文显示文本 */
@@ -270,10 +270,10 @@ typedef enum {
 void menu_lang_set(menu_lang_t lang);
 menu_lang_t menu_lang_get(void);
 /* 供设置页 Language 条目调用：在 EN <-> ZH 之间切换（切换后请 menu_notify_changed() 重绘）。
- * 语言状态、i18n 表与查表实现都在 menu_ui.c，menu_pages.c 只声明菜单树。 */
+ * 语言状态、i18n 表与字体切换实现均在 menu_pages.c。 */
 void menu_lang_toggle(void);
 const char *menu_tr(const char *key);   /* 返回当前语言的显示文本 */
-/* 按当前语言返回字体（主界面 14px / 次要 12px；中文字库生成后中文态返回中文字体） */
+/* 菜单字体：中文12px；英文主14px、次12px。主屏数字独立使用等宽字体。 */
 const lv_font_t *menu_font_main(void);
 const lv_font_t *menu_font_small(void);
 

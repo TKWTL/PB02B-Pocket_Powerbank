@@ -134,7 +134,7 @@ static lv_obj_t *make_label(int32_t x, int32_t y, int32_t w, lv_text_align_t ali
 {
     lv_obj_t *lbl = lv_label_create(s_scr);
     lv_obj_set_style_pad_all(lbl, 0, 0);
-    lv_obj_set_style_text_font(lbl, menu_font_main(), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_ter_u14b, 0);
     lv_obj_set_style_text_align(lbl, align, 0);
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_MODE_CLIP);
     lv_obj_set_size(lbl, w, MAIN_LBL_H);
@@ -184,8 +184,11 @@ static void update_ports(void)
  * 电池 ETA 每 10s 更新一次，期间依靠 LVGL 毫秒 tick 递减显示秒数。 */
 static void update_eta(uint32_t bat_uw)
 {
+    /* WLED独占且已确认假A1时，SW6306的放电标志可能仍为0。
+     * 将其作为电池放电ETA来源；若真实充电正在进行，仍优先按充电计算。 */
     uint8_t mode = SW6306_IsCharging() ? 1U :
-                   (SW6306_IsDischarging() ? 2U : 0U);
+                   ((SW6306_IsDischarging() ||
+                     (WLED_AlgoIsOn() && WLED_AlgoOwnsFakeA1())) ? 2U : 0U);
     uint32_t power_mw = (bat_uw + 500U) / 1000U;
     uint32_t now = lv_tick_get(), best = MAIN_ETA_INVALID;
 
@@ -598,7 +601,7 @@ static void main_screen_create(void)
      * 独立对象，水平居中于图标主体（宽 40）。 */
     s_pct = lv_label_create(s_scr);
     lv_obj_set_style_pad_all(s_pct, 0, 0);
-    lv_obj_set_style_text_font(s_pct, menu_font_main(), 0);
+    lv_obj_set_style_text_font(s_pct, &lv_font_ter_u14b, 0);
     lv_obj_set_style_text_color(s_pct, lv_color_hex(0x000000), 0);
     lv_obj_set_size(s_pct, 40, MAIN_LBL_H);
     lv_obj_set_pos(s_pct, MAIN_BAT_X + 1, 0);
