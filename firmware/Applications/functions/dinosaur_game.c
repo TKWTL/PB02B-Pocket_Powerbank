@@ -21,6 +21,9 @@
 #define DINO_TICK_MS        33
 #define DINO_CACTUS_N        3
 #define DINO_CLOUD_N         3
+#define DINO_SKY_FADE_FRAMES 120U   /* 4s渐变，约30FPS */
+#define DINO_SKY_WAIT_MIN    120U   /* 4s后最早开始下一次切换 */
+#define DINO_SKY_WAIT_RAND   300U   /* 每局随机等待4~14s */
 
 typedef struct { int16_t x; uint8_t type, active, hit; } cactus_t;
 typedef struct { int16_t x; int8_t y; uint8_t div, phase, active; } cloud_t;
@@ -28,6 +31,9 @@ static struct {
     uint32_t distance, best, rng;
     int16_t y2, cactus_gap, cloud_gap; /* y2 为半像素坐标 */
     int8_t vy2;                       /* 半像素/帧；重力为 +1 */
+    uint16_t sky_wait;
+    int8_t sky_step;             /* -1 向夜，+1 向昼，0 保持 */
+    uint8_t sky_level;           /* 0=夜，120=昼；不参与游戏物理 */
     uint8_t life, dead, ready, frame, hi_crossed, hi_blink;
     cactus_t cactus[DINO_CACTUS_N];
     cloud_t cloud[DINO_CLOUD_N];
@@ -37,6 +43,7 @@ static struct {
 static lv_obj_t *screen, *hud, *player, *ground[2], *over[2];
 static lv_obj_t *cactus_img[DINO_CACTUS_N], *cloud_img[DINO_CLOUD_N];
 static lv_timer_t *timer;
+static uint8_t palette_level = 0xFFU, palette_mode = 0xFFU;
 
 static void seed_rng(void)
 {
@@ -76,6 +83,10 @@ static void reset_game(void)
     for (i = 0; i < DINO_CACTUS_N; ++i) g.cactus[i].active = 0;
     for (i = 0; i < DINO_CLOUD_N; ++i) g.cloud[i].active = 0;
     seed_rng();
+    /* 新一局随机初始昼夜与切换时间；MENU退出/返回不调用reset_game。 */
+    g.sky_level = (next_rand() & 1U) ? DINO_SKY_FADE_FRAMES : 0U;
+    g.sky_step = 0;
+    g.sky_wait = DINO_SKY_WAIT_MIN + next_rand() % DINO_SKY_WAIT_RAND;
     g.ready = 1;
 }
 static lv_obj_t *sprite(const lv_image_dsc_t *src)
@@ -114,6 +125,55 @@ static int16_t player_screen_y(void)
     return DINO_Y - (int16_t)((2 * DINO_Y - g.y2) * 2 / 3);
 }
 
+/* 只在亮度变化时修改样式。背景灰度渐变；前景中点切换确保始终
+ * 有足够对比度，不会在灰度交叉时让文字/仙人掌变成不可见。
+ * 云始终使用灰阶色；死亡提示保留字体但背景随天空变化。
+ * 图像先于HUD创建，HUD始终叠在云朵上方。 */
+static void update_palette(void)
+{
+    uint8_t i, is_day, gray;
+    lv_color_t bg, ink, cloud;
+    if (palette_level == g.sky_level) return;
+    palette_level = g.sky_level;
+    gray = (uint8_t)(18U + (uint32_t)g.sky_level * 218U / DINO_SKY_FADE_FRAMES);
+    bg = lv_color_make(gray, gray, gray);
+    lv_obj_set_style_bg_color(screen, bg, 0);
+    for (i = 0; i < 2U; ++i) lv_obj_set_style_bg_color(over[i], bg, 0);
+
+    is_day = g.sky_level > DINO_SKY_FADE_FRAMES / 2U;
+    if (palette_mode == is_day) return;
+    palette_mode = is_day;
+    ink = lv_color_hex(is_day ? 0x181818 : 0xF0F0F0);
+    cloud = lv_color_hex(is_day ? 0x555555 : 0xBFBFBF);
+    lv_obj_set_style_text_color(hud, ink, 0);
+    for (i = 0; i < 2U; ++i) {
+        lv_obj_set_style_image_recolor(ground[i], ink, 0);
+        lv_obj_set_style_text_color(over[i], ink, 0);
+    }
+    lv_obj_set_style_image_recolor(player, ink, 0);
+    for (i = 0; i < DINO_CACTUS_N; ++i)
+        lv_obj_set_style_image_recolor(cactus_img[i], ink, 0);
+    for (i = 0; i < DINO_CLOUD_N; ++i)
+        lv_obj_set_style_image_recolor(cloud_img[i], cloud, 0);
+}
+
+/* 仅装饰性昼夜交替，不变更障碍、碰撞、分数或速度。
+ * 用帧数计时：菜单退出/DeepSleep后自然冻结，回到游戏继续。 */
+static void update_sky(void)
+{
+    if (g.sky_step) {
+        g.sky_level = (uint8_t)((int16_t)g.sky_level + g.sky_step);
+        if (g.sky_level == 0U || g.sky_level == DINO_SKY_FADE_FRAMES) {
+            g.sky_step = 0;
+            g.sky_wait = DINO_SKY_WAIT_MIN + next_rand() % DINO_SKY_WAIT_RAND;
+        }
+    } else if (g.sky_wait) {
+        --g.sky_wait;
+    } else {
+        g.sky_step = g.sky_level ? -1 : 1;
+    }
+}
+
 static void draw_game(void)
 {
     static const lv_image_dsc_t *const shapes[4] = {
@@ -124,6 +184,7 @@ static void draw_game(void)
     int16_t shift;
     char title[] = "*** HI00000 00000"; /* 17字 × 8px = 136px，右对齐 */
     if (!screen) return;
+    update_palette();
     for (i = g.life; i < 3U; ++i) title[i] = ' ';
     five_digits(title + 6, g.best);
     five_digits(title + 12, g.distance / 2U);
@@ -174,6 +235,7 @@ static void frame_tick(lv_timer_t *t)
     uint8_t i, sp;
     (void)t;
     if (g.dead) return;
+    update_sky();
     sp = world_speed();
     g.distance += sp;
     ++g.frame;
@@ -271,13 +333,16 @@ static void game_create(void)
     for (i = 0; i < DINO_CLOUD_N; ++i) cloud_img[i] = sprite(&dino_icon_cloud);
     for (i = 0; i < DINO_CACTUS_N; ++i) cactus_img[i] = sprite(&dino_icon_cactus0);
     player = sprite(&dino_icon_run0);
-    hud = label("*** HI00000 00000", 24, -1, 136);
+    hud = label("*** HI00000 00000", 24, 0, 136);
+    lv_obj_set_style_text_font(hud, &lv_font_unscii_8, 0);
+    lv_obj_set_height(hud, 9); /* UNSCII-8 行高9，字宽8；17字符仍为136px */
     over[0] = label("GAME OVER", 80, 13, 80);
     over[1] = label("NEXT/CONF", 80, 26, 80);
     for (i = 0; i < 2; ++i) {
         lv_obj_set_style_bg_color(over[i], lv_color_hex(0x101010), 0);
         lv_obj_set_style_bg_opa(over[i], LV_OPA_COVER, 0);
     }
+    palette_level = palette_mode = 0xFFU; /* 每次重建对象强制同步当前日夜配色 */
     timer = lv_timer_create(frame_tick, DINO_TICK_MS, NULL);
     lv_timer_pause(timer); /* 过渡动画期间不推进游戏 */
     pm_api_set_sleep_block(PM_BLOCK_DINO, g.dead ? 0 : 1);
@@ -305,7 +370,7 @@ static void game_run(app_action_t action)
         if (timer) lv_timer_resume(timer);
         draw_game();
     } else if (g.y2 >= 2 * DINO_Y) {
-        g.vy2 = DINO_JUMP_VY2; /* 半像素加速度 +1，最大上升约22.5px */
+        g.vy2 = DINO_JUMP_VY2; /* 半像素物理+显示放大，最大上升30px */
     }
 }
 static void game_destroy(void)

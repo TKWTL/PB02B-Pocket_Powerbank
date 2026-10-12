@@ -1264,6 +1264,11 @@
               <FilePath>..\..\Applications\LVGL\src\font\lv_font_source_han_sans_sc_16_cjk.c</FilePath>
             </File>
             <File>
+              <FileName>lv_font_unscii_8.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\\..\\Applications\\LVGL\\src\\font\\lv_font_unscii_8.c</FilePath>
+            </File>
+            <File>
               <FileName>font-terminus-u14b.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\Applications\LVGL\src\font\font-terminus-u14b.c</FilePath>
