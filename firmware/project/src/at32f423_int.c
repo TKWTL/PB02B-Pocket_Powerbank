@@ -433,6 +433,9 @@ void I2C1_EVT_IRQHandler(void)
   /* add user code end I2C1_EVT_IRQ 0 */
 
   /* add user code begin I2C1_EVT_IRQ 1 */
+    /* BSP owns the I2C state machine; Workbench no longer inserts this
+     * call when I2C Application Library is disabled. Keep it in USER CODE. */
+    i2c_evt_irq_handler(&hi2c1);
     i2c_evt_irq_cnt++;                                  /* 风暴判定计数器（ISR 内不打印） */
     i2c_last_sts    = I2C1->sts;
     i2c_last_pcount = hi2c1.pcount;
@@ -466,6 +469,9 @@ void I2C1_ERR_IRQHandler(void)
   /* add user code end I2C1_ERR_IRQ 0 */
 
   /* add user code begin I2C1_ERR_IRQ 1 */
+    /* Clear hardware error flags and terminate the failed transaction
+     * before waking its owning FreeRTOS task. */
+    i2c_err_irq_handler(&hi2c1);
     i2c_err_irq_cnt++;                                  /* 风暴判定计数器（ISR 内不打印） */
     i2c_last_sts    = I2C1->sts;
     i2c_last_pcount = hi2c1.pcount;

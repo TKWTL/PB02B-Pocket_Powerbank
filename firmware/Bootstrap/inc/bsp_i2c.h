@@ -25,7 +25,7 @@ typedef struct {
 } i2c_handle_type;
 
 extern i2c_handle_type hi2c1;
-void wk_i2c_app_init(void); /* Called by Workbench-generated main.c */
+void wk_i2c_app_init(void); /* Optional legacy hook; hi2c1 is statically bound */
 i2c_status_type i2c_master_transmit(i2c_handle_type *, uint16_t, uint8_t *, uint16_t, uint32_t);
 i2c_status_type i2c_master_transmit_int(i2c_handle_type *, uint16_t, uint8_t *, uint16_t, uint32_t);
 i2c_status_type i2c_master_receive_int(i2c_handle_type *, uint16_t, uint8_t *, uint16_t, uint32_t);

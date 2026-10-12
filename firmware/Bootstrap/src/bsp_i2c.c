@@ -1,8 +1,9 @@
 #include "bsp_i2c.h"
 #include "bsp_usart.h"   /* 事务失败打点：USART_SendByte('!') */
 
-/* Owned handle, independent of regenerated i2c_app.c (excluded from build). */
-i2c_handle_type hi2c1;
+/* Workbench can omit wk_i2c_app_init() when I2C Application is unchecked.
+ * Bind the I2C1 handle at startup, independently of generated main.c. */
+i2c_handle_type hi2c1 = { .i2cx = I2C1 };
 
 void wk_i2c_app_init(void)
 {
