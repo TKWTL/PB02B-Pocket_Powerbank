@@ -21,6 +21,7 @@
 #define DINO_TICK_MS        33
 #define DINO_CACTUS_N        3
 #define DINO_CLOUD_N         3
+#define DINO_SPEED_Q          12U   /* 1/4096 px/frame；平滑分摊每帧的整数像素 */
 #define DINO_SKY_FADE_FRAMES 42U    /* 42×33ms≈1.39s渐变 */
 #define DINO_SKY_WAIT_MIN    1200U  /* 最短：原120帧×10 = 39.6s */
 #define DINO_SKY_WAIT_RAND   7181U  /* 最长：1200+7180=8380帧，原419帧×20 */
@@ -29,6 +30,7 @@ typedef struct { int16_t x; uint8_t type, active, hit; } cactus_t;
 typedef struct { int16_t x; int8_t y; uint8_t div, phase, active; } cloud_t;
 static struct {
     uint32_t distance, best, rng;
+    uint16_t distance_frac;         /* 速度的 Q12 小数累积，MENU 退出保留 */
     int16_t y2, cactus_gap, cloud_gap; /* y2 为半像素坐标 */
     int8_t vy2;                       /* 半像素/帧；重力为 +1 */
     uint16_t sky_wait;
@@ -62,15 +64,51 @@ static uint32_t next_rand(void)
     v ^= v << 13; v ^= v >> 17; v ^= v << 5;
     return g.rng = v;
 }
-static uint8_t world_speed(void)
+/* 32-bit 整数平方根：仅在30FPS速度计算中调用，无float/libm。 */
+static uint16_t speed_isqrt(uint32_t n)
 {
-    uint32_t s = g.distance / 2U;
-    return s >= 600U ? 5U : s >= 300U ? 4U : s >= 100U ? 3U : 2U;
+    uint32_t root = 0U, bit = 1UL << 30;
+    while (bit > n) bit >>= 2;
+    while (bit) {
+        if (n >= root + bit) {
+            n -= root + bit;
+            root = (root >> 1) + bit;
+        } else {
+            root >>= 1;
+        }
+        bit >>= 2;
+    }
+    return (uint16_t)root;
+}
+
+/* 横抛物线开方 → 谷底后加速 → 切线连续的开方曲线。
+ * s=游戏分数，速度Q12单位为px/帧：
+ *   0..100:  2 + 0.045*(sqrt(s+100)-10)
+ * 100..400:  2.1863 + 0.00159*d + 1.514e-6*d² (d=s-100)
+ * 400..5000:2.8000 + 0.03606*(sqrt(s-400+52)-sqrt(52))
+ * 最大斜率约0.0025px/帧/分，5000分达到5px/帧后保持不变。
+ * sqrt 的输入乘2^16，结果即Q8；以下全为整数定点运算。 */
+static uint16_t world_speed_q12(void)
+{
+    uint32_t s = g.distance / 2U, d, root;
+    if (s <= 100U) {
+        root = speed_isqrt((s + 100U) << 16);
+        return (uint16_t)(8192U + (720U * (root - 2560U) + 500U) / 1000U);
+    }
+    if (s <= 400U) {
+        d = s - 100U;
+        return (uint16_t)(8955U + (d * 652U + 50U) / 100U +
+                          (d * d * 62U + 5000U) / 10000U);
+    }
+    if (s >= 5000U) return 5U << DINO_SPEED_Q;
+    root = speed_isqrt((s - 400U + 52U) << 16);
+    return (uint16_t)(11469U + (577U * (root - 1846U) + 500U) / 1000U);
 }
 static void reset_game(void)
 {
     uint8_t i;
     g.distance = 0;
+    g.distance_frac = 0;
     g.y2 = 2 * DINO_Y;
     g.vy2 = 0;
     g.cactus_gap = 80;
@@ -233,10 +271,15 @@ static void frame_tick(lv_timer_t *t)
 {
     static const uint8_t cactus_w[4] = {8U, 16U, 24U, 24U};
     uint8_t i, sp;
+    uint16_t step;
     (void)t;
     if (g.dead) return;
     update_sky();
-    sp = world_speed();
+    /* 累积亚像素位移，避免 Q12 速度直接取整又形成新档位。
+     * 障碍、地面及云朵共用这一帧位移，碰撞与画面保持同步。 */
+    step = g.distance_frac + world_speed_q12();
+    sp = (uint8_t)(step >> DINO_SPEED_Q);
+    g.distance_frac = step & ((1U << DINO_SPEED_Q) - 1U);
     g.distance += sp;
     ++g.frame;
     /* 历史最高分直到生命耗尽才更新；首次超越历史纪录闪烁三次。 */
