@@ -10,9 +10,13 @@
 #include "at32f423.h"
 
 #define DINO_W             160
-#define DINO_GROUND_Y       32
+#define DINO_GROUND_Y       33
 #define DINO_X               6
-#define DINO_Y              16
+#define DINO_Y              22
+#define DINO_CACTUS_Y       23
+#define DINO_JUMP_VY2       -9
+/* 原 XBM 碰撞判据留 4px 容差；恐龙与仙人掌各高 16px。 */
+#define DINO_SAFE_Y2 (2 * (DINO_CACTUS_Y - 16 + 4))
 #define DINO_GROUND_W      597
 #define DINO_TICK_MS        33
 #define DINO_CACTUS_N        3
@@ -124,7 +128,7 @@ static void draw_game(void)
         if (c->active) {
             lv_obj_remove_flag(cactus_img[i], LV_OBJ_FLAG_HIDDEN);
             lv_image_set_src(cactus_img[i], shapes[c->type]);
-            lv_obj_set_pos(cactus_img[i], c->x, DINO_Y);
+            lv_obj_set_pos(cactus_img[i], c->x, DINO_CACTUS_Y);
         } else lv_obj_add_flag(cactus_img[i], LV_OBJ_FLAG_HIDDEN);
     }
     for (i = 0; i < DINO_CLOUD_N; ++i) {
@@ -143,6 +147,10 @@ static void draw_game(void)
         if (g.dead) lv_obj_remove_flag(over[i], LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(over[i], LV_OBJ_FLAG_HIDDEN);
     }
+    /* A8 精灵的透明区必须显示本帧背景，避免移动精灵、地面留下残影。
+     * 根屏背景已设置 LV_OPA_COVER，整屏 invalidate 可重绘全部 160x40。
+     * 只在 draw_game 被调用时执行，不创建额外全屏缓存或对象。 */
+    lv_obj_invalidate(screen);
 }
 static void frame_tick(lv_timer_t *t)
 {
@@ -155,7 +163,8 @@ static void frame_tick(lv_timer_t *t)
     ++g.frame;
     if (g.distance / 2U > g.best) g.best = g.distance / 2U;
 
-    /* 最高点 vy2=0 时也必须继续积分，否则会停在空中。 */
+    /* 最高点 vy2=0 时也必须继续积分，否则会停在空中。
+     * 以 DINO_Y=22 为落地点，上升时允许图案接近屏幕上沿。 */
     if (g.vy2 != 0 || g.y2 < 2 * DINO_Y) {
         g.y2 += g.vy2++;
         if (g.y2 >= 2 * DINO_Y) { g.y2 = 2 * DINO_Y; g.vy2 = 0; }
@@ -166,9 +175,10 @@ static void frame_tick(lv_timer_t *t)
         if (!c->active) continue;
         c->x -= sp;
         if (c->x < -(int16_t)cactus_w[c->type]) { c->active = 0; continue; }
-        /* 一个障碍最多扣一命；恐龙离地 8px 后可越过。 */
+        /* 与仙人掌的真实 Y 坐标同步；允许 4px 图案空隙容差。
+         * 最高跳幅约 22.5px，四类仙人掌均有可通过的时间窗口。 */
         if (!c->hit && c->x < DINO_X + 15 &&
-            c->x + cactus_w[c->type] > DINO_X + 1 && g.y2 > 16) {
+            c->x + cactus_w[c->type] > DINO_X + 1 && g.y2 > DINO_SAFE_Y2) {
             c->hit = 1;
             if (--g.life == 0) {
                 g.dead = 1;
@@ -207,7 +217,7 @@ static void frame_tick(lv_timer_t *t)
                 cloud_t *c = &g.cloud[i];
                 if (!c->active) {
                     c->active = 1; c->x = DINO_W; c->phase = 0;
-                    c->y = 14U + next_rand() % 7U;
+                    c->y = 14U + next_rand() % 11U; /* 14..24，云朵底部不进入地面 */
                     c->div = 2U + next_rand() % 3U;
                     break;
                 }
@@ -270,7 +280,7 @@ static void game_run(app_action_t action)
         if (timer) lv_timer_resume(timer);
         draw_game();
     } else if (g.y2 >= 2 * DINO_Y) {
-        g.vy2 = -7; /* 固定跳高，与按键时长无关 */
+        g.vy2 = DINO_JUMP_VY2; /* 半像素加速度 +1，最大上升约22.5px */
     }
 }
 static void game_destroy(void)
