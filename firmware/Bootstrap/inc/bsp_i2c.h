@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 #include "at32f423_wk_config.h"
-/* Native BSP contract; vendor i2c_application.h is no longer a dependency. */
+/* Native BSP contract; no Workbench I2C Application Library dependency. */
 typedef enum { I2C_MEM_ADDR_WIDIH_8=1, I2C_MEM_ADDR_WIDIH_16=2 } i2c_mem_address_width_type;
 typedef enum { I2C_INT_MA_TX=0, I2C_INT_MA_RX=1 } i2c_mode_type;
 typedef enum {

@@ -253,20 +253,22 @@ static void update_battery(void)
         s_bar_tenth = (uint16_t)actual * 10U;
     }
     pct = (uint8_t)(s_bar_tenth / 10U);
-    fill = 40 * (int32_t)pct / 100;
-    /* Solid A8 bitmap: body x=3..39 (37px), tab x=0..2 (3px)
-     * only at y=4..9. Keep the same s_bar_tenth charge animation. */
-    body = fill < 37 ? fill : 37;
-    tab = fill > 37 ? fill - 37 : 0;
+    fill = 37 * (int32_t)pct / 100;
+    /* Solid A8 bitmap: body outline x=3..39, tab x=0..2.
+     * Inset the colored fill to x=4..38 (35px), tab x=1..2 (2px),
+     * leaving the same 1px rim on the right as at the top and bottom.
+     * The charging animation's s_bar_tenth cadence is unchanged. */
+    body = fill < 35 ? fill : 35;
+    tab = fill > 35 ? fill - 35 : 0;
 
     /* Bar remains inside the body shape with one-pixel vertical inset. */
     lv_obj_set_size(s_bar, body, 12);
-    lv_obj_set_pos(s_bar, MAIN_BAT_X + 40 - body, 1);
+    lv_obj_set_pos(s_bar, MAIN_BAT_X + 39 - body, 1);
     lv_obj_set_style_bg_color(s_bar, lv_color_hex(
         (pct >= 30U) ? 0x00F008 : (pct >= 10U) ? 0xE8DC00 : 0xF80000), 0);
     if (tab > 0) {
-        lv_obj_set_size(s_tab, tab, 6);
-        lv_obj_set_pos(s_tab, MAIN_BAT_X + 3 - tab, 4);
+        lv_obj_set_size(s_tab, tab, 4);
+        lv_obj_set_pos(s_tab, MAIN_BAT_X + 3 - tab, 5);
         lv_obj_remove_flag(s_tab, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_tab, LV_OBJ_FLAG_HIDDEN);
@@ -571,26 +573,24 @@ static void main_screen_create(void)
     lv_obj_set_style_image_recolor_opa(s_bat_img, LV_OPA_COVER, 0);
     lv_obj_set_pos(s_bat_img, MAIN_BAT_X, 0);
 
-    /* 电量填充条：初始宽 0、右对齐到主体右端，
-     * 实际尺寸每次刷新由 update_battery() 设定。
-     * 高度 12（y1..y12）比图标主体 y0..y13 各内缩 1px，
-     * 使电量条上下沿都被图标实心区压住、不露出边界。 */
+    /* 电量填充条：主体 x=4..38、y=1..12，保留右侧和上下 1px 图标边框；
+     * 实际尺寸每次刷新由 update_battery() 设定。 */
     s_bar = lv_obj_create(s_scr);
     lv_obj_set_style_border_width(s_bar, 0, 0);
     lv_obj_set_style_radius(s_bar, 0, 0);
     lv_obj_set_style_pad_all(s_bar, 0, 0);
     lv_obj_remove_flag(s_bar, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(s_bar, 0, 12);
-    lv_obj_set_pos(s_bar, MAIN_BAT_X + 40, 1);
+    lv_obj_set_pos(s_bar, MAIN_BAT_X + 39, 1);
 
-    /* Tip appears only for fill >37; its shape is 3x6px at y=4..9. */
+    /* Tip appears only for fill >35; its inset is 2x4px at x=1..2, y=5..8. */
     s_tab = lv_obj_create(s_scr);
     lv_obj_set_style_border_width(s_tab, 0, 0);
     lv_obj_set_style_radius(s_tab, 0, 0);
     lv_obj_set_style_pad_all(s_tab, 0, 0);
     lv_obj_remove_flag(s_tab, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(s_tab, 0, 6);
-    lv_obj_set_pos(s_tab, MAIN_BAT_X + 3, 4);
+    lv_obj_set_size(s_tab, 0, 4);
+    lv_obj_set_pos(s_tab, MAIN_BAT_X + 3, 5);
     lv_obj_set_style_bg_color(s_tab, lv_color_hex(0x00F008), 0);
     lv_obj_add_flag(s_tab, LV_OBJ_FLAG_HIDDEN);   /* 默认隐藏，由刷新逻辑按需显示 */
 

@@ -15,8 +15,8 @@ CUSTOM = ("leveler.c", "dinosaur_game.c", "dinosaur_icon.c")
 
 
 def adjusted(text: str) -> str:
-    # Generated files are kept on disk for Workbench but excluded from Keil:
-    # bsp_i2c.c owns hi2c1, all used master IRQ operations and crash fixes.
+    # Workbench may regenerate retired I2C library/app files. The Keil
+    # build always uses BSP-owned hi2c1, master IRQ code and crash fixes.
     text = re.sub(
         r"\s*<Group>\s*<GroupName>middlewares/i2c_application</GroupName>[\s\S]*?</Group>",
         "", text,
