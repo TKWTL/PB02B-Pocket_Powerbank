@@ -30,13 +30,14 @@ extern sc7a20_algo_config_t SC7A20_AlgoConfig;
 /* 25Hz sleep, FS=2g -> INTx_THS LSB=16mg (LIS2DH12-compatible; verify on SC7A20).
  * 6D: return to 32LSB=512mg: the previous 54LSB value lost all observed
  * pickup events. Revisit after validating actual INT2_SOURCE responses.
- * Motion: 10LSB=160mg, zero duration catches single 25Hz samples.
- * HPM=00: explicitly reset HPF via REFERENCE before each sleep re-arm.
- * In low-power mode CTRL4.HR MUST be 0 (LPen=1/HR=1 is invalid). */
+ * Motion 实验参数：48LSB=768mg，DUR=2 @25Hz（约80ms），只检测
+ * XYZ 正向事件。AOI1 锁存，唤醒后通过 SOURCE 释放；AOI2 仍非锁存。
+ * HPF 采用 CTRL2=0x01，睡前读 REFERENCE 清除静态偏置。
+ * LPen=1 时必须清除 HR 位，Pickup 的 6D 参数保持不变。 */
 #define SC7A20_PICKUP_THS_REG        32U
 #define SC7A20_PICKUP_DUR_REG         1U
-#define SC7A20_MOTION_THS_REG        10U
-#define SC7A20_MOTION_DUR_REG         0U
+#define SC7A20_MOTION_THS_REG        48U
+#define SC7A20_MOTION_DUR_REG         2U
 #define SC7A20_ALGO_SAMPLE_MS         200U   /* 5Hz application sampling */
 #define SC7A20_ALGO_ENTER_MG        650.0f
 #define SC7A20_ALGO_CONFIRM_SAMPLES   10U    /* 10 further 200ms samples = 2s stable */

@@ -101,10 +101,10 @@ void SC7A20_AlgoLoadSample(void)
  * Shared PB8/EXTI8 is low-active; ISR always wakes without classifying source.
  * Motion: AOI1 (0x30) XYZ OR + high-pass (CTRL2.HPIS1), INT1 CTRL3[6].
  * Pickup: AOI2 (0x34) 6D Movement XYZ axes, INT1 CTRL3[5].
- * Both engines share 25Hz / 2g LP ODR. Motion HPF trial: HPM=00,
- * reset REFERENCE once before arming AOI1 to remove static gravity.
- * Do not read REFERENCE on resume (previous regression).
- * PB8 interrupt remains non-latched to coexist with SW6306.
+ * 两路共享 25Hz/±2g 低功耗采样；AOI1 采用高通并在布防前读 REFERENCE 清除重力。
+ * Motion 仅使用 XYZ 正向事件，增加阈值与持续时间以避免静置误报；
+ * 只锁存 AOI1，Pickup/AOI2 保持原非锁存方式。
+ * 唤醒后先读 SOURCE 释放锁存，再撤销路由，避免 PB8 长期被拉低。
  */
 static void sc7a20_wake_routes_off(void)
 {
@@ -114,9 +114,12 @@ static void sc7a20_wake_routes_off(void)
     /* Clear AOI1 after each wake; next suspend re-arms after HPF settles. */
     SC7A20_ByteWrite(SC7A20_CTRG_INT1_CFG, 0U);
     SC7A20_ByteWrite(SC7A20_CTRG_INT2_CFG, 0U);
-    /* Also restore normal-reset HPF mode before the next sleep session. */
+    /* 清除休眠用的高通路由及锁存状态，避免影响正常运行。 */
     SC7A20_ByteModify(SC7A20_CTRG_CTRL2,
-        SC7A20_CTRL2_HPM_MSK | SC7A20_CTRL2_HPIS1, 0U);
+        SC7A20_CTRL2_HPM_MSK | SC7A20_CTRL2_HPCF_MSK |
+        SC7A20_CTRL2_HPIS1 | SC7A20_CTRL2_HPIS2, 0U);
+    SC7A20_ByteModify(SC7A20_CTRG_CTRL5,
+        SC7A20_CTRL5_LIR_INT1 | SC7A20_CTRL5_LIR_INT2, 0U);
 }
 
 void SC7A20_AlgoPmSuspend(void *ctx)
@@ -141,12 +144,13 @@ void SC7A20_AlgoPmSuspend(void *ctx)
         return;
     }
 
-    /* Keep low-active output (idle high) on shared PB8. Do not latch AOI. */
+    /* PB8 低有效；仅 Motion/AOI1 锁存，Pickup/AOI2 仍按原配置运行。
+     * 守护逻辑会在持续低电平时读 SOURCE 清锁存，必要时撤销唤醒路由。 */
     SC7A20_ByteModify(SC7A20_CTRG_CTRL6,
         SC7A20_CTRL6_H_LACTIVE, SC7A20_CTRL6_H_LACTIVE);
-    /* Ensure both AOI generators are non-latched, including AOI2 routed to INT1. */
     SC7A20_ByteModify(SC7A20_CTRG_CTRL5,
-        SC7A20_CTRL5_LIR_INT1 | SC7A20_CTRL5_LIR_INT2, 0U);
+        SC7A20_CTRL5_LIR_INT1 | SC7A20_CTRL5_LIR_INT2,
+        SC7A20_AlgoConfig.motion_wake ? SC7A20_CTRL5_LIR_INT1 : 0U);
 
     /* LIS2DH12 forbids LPen=1 with HR=1. Normal RUN mode uses HR=1,
      * so clear it BEFORE enabling LPen for the 10/25Hz wake monitor.
@@ -158,11 +162,9 @@ void SC7A20_AlgoPmSuspend(void *ctx)
         SC7A20_ByteWrite(SC7A20_CTRG_INT1_DURATION, SC7A20_MOTION_DUR_REG);
         /* Keep INT1_CFG=0 through HPF startup; re-enable just before
          * connecting the output to PB8 in the sleep entry path. */
-        /* HPM=00: REFERENCE read resets the HPF to current gravity.
-         * HPM=11 left AOI1 asserted at rest (SRC=55/65), disabling wake. */
-        SC7A20_ByteModify(SC7A20_CTRG_CTRL2,
-            SC7A20_CTRL2_HPM_MSK | SC7A20_CTRL2_HPIS1,
-            SC7A20_HPM_NORMAL_RST | SC7A20_CTRL2_HPIS1);
+        /* CTRL2=0x01：只将高通送 AOI1，AOI2 的 6D 姿态判断保留重力。
+         * HPM=00 配合布防前读 REFERENCE 清除静态偏置。 */
+        SC7A20_ByteWrite(SC7A20_CTRG_CTRL2, SC7A20_CTRL2_HPIS1);
         routes |= SC7A20_CTRL3_I1_AOI1;
     }
 
@@ -177,8 +179,8 @@ void SC7A20_AlgoPmSuspend(void *ctx)
         routes |= SC7A20_CTRL3_I1_AOI2;
     }
 
-    /* Motion: 25Hz, 10LSB (160mg), duration 0, HPF reference reset.
-     * Pickup threshold and 6D mode are unchanged. */
+    /* Motion 在 25Hz 下使用 768mg / 连续约80ms 的试验门限；
+     * 维持 Pickup 已验证的 25Hz/6D 配置，不直接照搬文章的10Hz/500ms。 */
     SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
         SC7A20_ODR_25HZ | SC7A20_CTRL1_LPEN | SC7A20_DEFAULT_AXIS_EN);
 
@@ -194,15 +196,14 @@ void SC7A20_AlgoPmSuspend(void *ctx)
      * Previously INT1_CFG was enabled before the 420+120ms delay. */
     if (SC7A20_AlgoConfig.motion_wake)
         SC7A20_ByteWrite(SC7A20_CTRG_INT1_CFG, SC7A20_INTMODE_OR |
-            SC7A20_INT_CFG_XHIE | SC7A20_INT_CFG_XLIE |
-            SC7A20_INT_CFG_YHIE | SC7A20_INT_CFG_YLIE |
-            SC7A20_INT_CFG_ZHIE | SC7A20_INT_CFG_ZLIE);
+            SC7A20_INT_CFG_XHIE | SC7A20_INT_CFG_YHIE |
+            SC7A20_INT_CFG_ZHIE);
     SC7A20_ByteModify(SC7A20_CTRG_CTRL3,
         SC7A20_CTRL3_I1_AOI1 | SC7A20_CTRL3_I1_AOI2, routes);
 
-    /* At 25Hz the 40ms IRQ period is exactly 1/3 of the old 120ms
-     * guard interval. Use off-phase polling; do not mistake periodic
-     * low pulses for a continuously asserted PB8 signal. */
+    /* Pickup 为短脉冲，Motion 已锁存：连续低电平可能是一次合法的
+     * Motion 事件，也可能是持续判定/共享 IRQ 故障。达到保护门限后
+     * 先读 SOURCE 释放锁存，再复查 PB8，仍低才关闭传感器唤醒。 */
     {
         uint8_t low_streak = 0U;
         for (uint8_t i = 0U; i < 30U; ++i) {
