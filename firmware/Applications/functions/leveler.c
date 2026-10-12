@@ -1,7 +1,7 @@
-/* leveler.c - iOS7风格水平仪，160x40：左104px图形，右56px数据。
+/* leveler.c - iOS7风格水平仪，160x40：左102px图形、2px黑色间隔、右56px数据。
  * SC7A20仅由load_task读I2C，UI消费经六面校准的镜像。
  * X≈-1g：横地平线；Y≈+1g：左白右黑的竖地平线；
- * Z≈-1g：白色双圆交叠（重叠部分为黑），全程仅使用黑白。
+ * Z≈-1g：黑底白圆；Z>0：白底黑圆，重合处使用反色异或。
  */
 #include "leveler.h"
 #include "functions.h"
@@ -10,9 +10,10 @@
 #include <math.h>
 #include <string.h>
 
-#define LEVEL_W           104
+#define LEVEL_W           102
+#define LEVEL_GAP         2              /* 数据区左边留2px黑色间隔 */
 #define LEVEL_H           40
-#define LEVEL_PIXELS      (LEVEL_W * LEVEL_H) /* A8: 3520字节；绘制器已支持A8 */
+#define LEVEL_PIXELS      (LEVEL_W * LEVEL_H) /* A8: 4080字节；绘制器已支持A8 */
 #define LEVEL_PERIOD_MS   40U            /* UI 25FPS，LOAD 25Hz */
 #define LEVEL_R           12             /* 铅锤双圆半径12px */
 #define LEVEL_PLUMB_ENTER 43.0f          /* 从水平进入铅锤：偏离Z轴<=43° */
@@ -44,13 +45,15 @@ static void tick_pixel(uint8_t x, uint8_t y)
 }
 
 /* X=-1g上白下黑、Y=+1g左白右黑。地平线随Z偏移；
- * 铅锤双圆沿垂直于XY重力方向分离；两种视图均整幅重绘。 */
+ * 铅锤双圆沿垂直于XY重力方向分离；Z>0采用白底黑圆。 */
 static void render_graphics(float xg, float yg, float zg, float plumb_deg)
 {
     int16_t x, y;
     float h = sqrtf(xg * xg + yg * yg);
-    /* 每帧全清A8画布，地平线/双圆相交时不会残留旧图像。 */
-    memset(s_canvas_buf, 0, sizeof(s_canvas_buf));
+    /* Z>0铅锤：白色背景；其他姿态：黑色背景。
+     * 整幅清空/填白再重绘，圆形及地平线不会留下上一帧伪影。 */
+    memset(s_canvas_buf, (s_mode == 2U && zg > 0.0f) ? 0xFF : 0,
+           sizeof(s_canvas_buf));
     if (s_mode == 2U) {
         /* 双圆的连线相对旧版旋转90°，垂直于XY重力方向。
          * 45°时分离、靠近Z轴时逐渐完全重合；防止上下边界裁切。 */
@@ -78,7 +81,7 @@ static void render_graphics(float xg, float yg, float zg, float plumb_deg)
                 int32_t b = (2*x-x2)*(2*x-x2) + (2*y-y2)*(2*y-y2);
                 if ((a < 4*LEVEL_R*LEVEL_R) !=
                     (b < 4*LEVEL_R*LEVEL_R))
-                    pixel((uint8_t)x, (uint8_t)y);
+                    tick_pixel((uint8_t)x, (uint8_t)y);
             }
         }
     } else if (h > 0.0001f) {
@@ -203,7 +206,7 @@ static void level_create(void)
     lv_obj_set_scrollbar_mode(s_screen, LV_SCROLLBAR_MODE_OFF);
 
     s_canvas = lv_canvas_create(s_screen);
-    /* 直接用A8源像素（尺寸104x40），配白色image_recolor。
+    /* 直接用A8源像素（尺寸102x40），配白色image_recolor。
      * A8=0透出黑色底板，A8=255显示纯白，不需要调色板。 */
     lv_draw_buf_init(&s_canvas_draw_buf, LEVEL_W, LEVEL_H, LV_COLOR_FORMAT_A8,
                      LEVEL_W, s_canvas_buf, sizeof(s_canvas_buf));
@@ -212,11 +215,11 @@ static void level_create(void)
     lv_obj_set_style_image_recolor_opa(s_canvas, LV_OPA_COVER, 0);
     lv_obj_set_pos(s_canvas, 0, 0);
 
-    /* 数据区7字符×8px恰好56px，固定黑底与图形区拼接。 */
+    /* 102px图形 + 2px黑色间隔 + 7字符×8px=56px数值，刚好160px。 */
     for (i = 0U; i < 4U; ++i) {
         s_label[i] = lv_label_create(s_screen);
-        lv_obj_set_pos(s_label[i], LEVEL_W, 1 + 10 * i);
-        lv_obj_set_size(s_label[i], 160 - LEVEL_W, 9);
+        lv_obj_set_pos(s_label[i], LEVEL_W + LEVEL_GAP, 1 + 10 * i);
+        lv_obj_set_size(s_label[i], 160 - LEVEL_W - LEVEL_GAP, 9);
         lv_obj_set_style_pad_all(s_label[i], 0, 0);
         lv_obj_set_style_bg_opa(s_label[i], LV_OPA_COVER, 0);
         lv_obj_set_style_bg_color(s_label[i], lv_color_black(), 0);
@@ -228,7 +231,7 @@ static void level_create(void)
     /* UNSCII-8仅覆盖ASCII，角度符号单独使用4px白色细圆环。 */
     s_degree = lv_obj_create(s_screen);
     lv_obj_set_size(s_degree, 4, 4);
-    lv_obj_set_pos(s_degree, LEVEL_W + 49, 31);
+    lv_obj_set_pos(s_degree, LEVEL_W + LEVEL_GAP + 49, 31);
     lv_obj_set_style_radius(s_degree, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_border_width(s_degree, 1, 0);
     lv_obj_set_style_border_color(s_degree, lv_color_white(), 0);
