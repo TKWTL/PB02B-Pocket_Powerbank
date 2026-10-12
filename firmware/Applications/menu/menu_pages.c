@@ -801,13 +801,14 @@ void menu_status_refresh(void)
                      (cg < 0) ? "-" : "",
                      (unsigned long)(mag / 100U), (unsigned long)(mag % 100U));
         }
-        /* Display °C using integer formatting; mini_snprintf has no %f. */
+        /* Display °C using integer formatting; mini_snprintf has no %f.
+         * 格式与 Battery 页的 "Temp: %d°C" 保持一致（含冒号后空格与度符号）。 */
         {
             float t = SC7A20_ReadTemp();
             int32_t t10 = (int32_t)(t * 10.0f + (t >= 0.0f ? 0.5f : -0.5f));
             uint32_t v = (uint32_t)(t10 < 0 ? -t10 : t10);
             mini_snprintf(menu_status_accel_temp, sizeof(menu_status_accel_temp),
-                          "Temp:%s%lu.%01luC", t10 < 0 ? "-" : "",
+                          "Temp: %s%lu.%01lu°C", t10 < 0 ? "-" : "",
                           (unsigned long)(v / 10U), (unsigned long)(v % 10U));
         }
     } else {

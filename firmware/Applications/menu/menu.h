@@ -17,8 +17,7 @@
  *      4) UI_PAGE_ICON 图标页     → MENU_PAGE_ICON + menu_icon_t（选中 30x30 / 未选中 20x20）
  *      5) UI_ACTION 动作枚举      → app_action_t（按键在 ui_task 统一映射为语义动作）
  *      6) 菜单项即应用            → menu_app_t 生命周期（进入 create / 退出 destroy）
- *  - 图标来源：根页图标由 MiaoUI 的 XBM 图标集（30x30）转换而来，
- *    转换脚本 menu/tools/xbm2lvgl.py，生成物 menu_icons.c。
+ *  - 图标来源：根页图标为 30x30 XBM 图标集转换后的 menu_icons.c。
  */
 #ifndef MENU_H
 #define MENU_H
