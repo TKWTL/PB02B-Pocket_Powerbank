@@ -94,7 +94,7 @@ static lv_obj_t *s_scr;                                     /* 主界面根对�
 static lv_obj_t *s_port, *s_bus_power, *s_bus_volt;         /* BUS 栏三行 */
 static lv_obj_t *s_bat_power, *s_bat_volt, *s_dir;          /* 电池栏：功率/电压 + 方向箭头 */
 static lv_obj_t *s_temp, *s_clock, *s_eta;                  /* 状态栏三行（ETA 在中行、时钟在低行） */
-static lv_obj_t *s_bar, *s_tab, *s_bat_img, *s_pct;       /* 电池条/轮廓/百分比 */
+static lv_obj_t *s_bar, *s_tab, *s_bat_img, *s_pct;       /* 电池条/端部小条/实心图标/百分比 */
 static lv_timer_t *s_timer;                                 /* 500ms 刷新定时器 */
 /* 电量条动画：以 0.1% 为单位逐步逼近真实电量，避免数字跳变。
  * 充电时每 500ms 前进 16.7%，放电时直接对齐真实值。 */
@@ -257,13 +257,17 @@ static void update_battery(void)
     body = fill < 35 ? fill : 35;
     tab = fill > 35 ? fill - 35 : 0;
 
-    lv_obj_set_size(s_bar, body, 12);
-    lv_obj_set_pos(s_bar, MAIN_BAT_X + 39 - body, 1);
+    /* 电量条尺寸按实心电池位图适配：主体实心区竖向为 y0..y13（14px）。
+     * 条高取 10px 并居中到 y2..y11，上下各留 2px 留白——
+     * 原来的 12px 高（y1..y12）只留 1px，贴着实心边缘显得发闷。
+     * 端部小条（tab）用同样高度与 y，满格时与主体齐平、无台阶。 */
+    lv_obj_set_size(s_bar, body, 10);
+    lv_obj_set_pos(s_bar, MAIN_BAT_X + 39 - body, 2);
     lv_obj_set_style_bg_color(s_bar, lv_color_hex(
         (pct >= 30U) ? 0x00F008 : (pct >= 10U) ? 0xE8DC00 : 0xF80000), 0);
     if (tab > 0) {
-        lv_obj_set_size(s_tab, tab, 6);
-        lv_obj_set_pos(s_tab, MAIN_BAT_X + 4 - tab, 4);
+        lv_obj_set_size(s_tab, tab, 10);
+        lv_obj_set_pos(s_tab, MAIN_BAT_X + 4 - tab, 2);
         lv_obj_remove_flag(s_tab, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_tab, LV_OBJ_FLAG_HIDDEN);
@@ -472,7 +476,7 @@ static void main_timer_cb(lv_timer_t *t)
 
 /* ---------- 对象创建（改布局主要看这里） ----------
  * 【创建顺序 = 图层顺序】后建的盖在上面，所以电量填充条(s_bar/s_tab)必须先建，
- * 电池轮廓图(s_bat_img)后建，填充才会显示在轮廓"内部"而不是遮住轮廓。
+ * 电池实心图标(s_bat_img)后建——实心图会盖住其覆盖区域内的电量条，
  * 电量百分比为电池图标的单层子 Label；白字避免动画剪裁造成视觉不连续。
  *
  * 【改动清单——每一步都对应一个可见元素】
@@ -482,7 +486,7 @@ static void main_timer_cb(lv_timer_t *t)
  *   4. 方向箭头（固定 x62..69，架在轮廓框与电池之间）
  *   5. 电池栏功率/电压两行
  *   6. 状态栏温度/ETA/时钟三行 + 各栏文字颜色
- *   7. 电池图标：填充条 → 凸起 → A8轮廓图 → 单层白色百分比
+ *   7. 电池图标：填充条 → 端部小条 → A8 实心图标 → 黑色百分比
  * 所有坐标都基于上面布局图的常量，尽量别再引入裸数字。 */
 
 
@@ -552,15 +556,15 @@ static void main_screen_create(void)
     lv_label_set_recolor(s_clock, true);
     lv_label_set_recolor(s_eta, true);
 
-    /* 电量填充条：先在底层画，再由上面的 A8 轮廓图盖出边框效果。
+    /* 电量填充条：先在底层画，再由上面的 A8 实心图标覆盖其上。
      * 初始宽 0、右对齐到主体右端，实际尺寸每次刷新由 update_battery() 设定。 */
     s_bar = lv_obj_create(s_scr);
     lv_obj_set_style_border_width(s_bar, 0, 0);
     lv_obj_set_style_radius(s_bar, 0, 0);
     lv_obj_set_style_pad_all(s_bar, 0, 0);
     lv_obj_remove_flag(s_bar, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(s_bar, 0, 12);
-    lv_obj_set_pos(s_bar, MAIN_BAT_X + 39, 1);
+    lv_obj_set_size(s_bar, 0, 10);
+    lv_obj_set_pos(s_bar, MAIN_BAT_X + 39, 2);
 
     /* 左侧小凸起：只在电量 >92% 左右（fill > 35）时才点亮 */
     s_tab = lv_obj_create(s_scr);
@@ -568,12 +572,12 @@ static void main_screen_create(void)
     lv_obj_set_style_radius(s_tab, 0, 0);
     lv_obj_set_style_pad_all(s_tab, 0, 0);
     lv_obj_remove_flag(s_tab, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(s_tab, 0, 6);
-    lv_obj_set_pos(s_tab, MAIN_BAT_X + 3, 4);
+    lv_obj_set_size(s_tab, 0, 10);
+    lv_obj_set_pos(s_tab, MAIN_BAT_X + 3, 2);
     lv_obj_set_style_bg_color(s_tab, lv_color_hex(0x00F008), 0);
     lv_obj_add_flag(s_tab, LV_OBJ_FLAG_HIDDEN);   /* 默认隐藏，由刷新逻辑按需显示 */
 
-    /* 电池轮廓图（40x14 A8），上色为白色 */
+    /* 电池实心图标（40x14 A8），上色为白色 */
     s_bat_img = lv_image_create(s_scr);
     lv_image_set_src(s_bat_img, &main_icon_battery);
     lv_obj_set_style_image_recolor(s_bat_img, lv_color_hex(0xD0DCE0), 0);
