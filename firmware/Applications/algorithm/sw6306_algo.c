@@ -55,7 +55,14 @@ static uint8_t s_idle_remove_ticks;
 
 /* RAM-only parameters; not written to NVM. */
 uint16_t SW6306_LowCurrentThreshold_mA = 80U;
-uint32_t SW6306_LowCurrentIdleTimeout_ms = 3600000UL;
+
+/* 小电流模式的空闲超时：超过这么久没有高负载，就自动退出该模式。
+ * 用宏（编译期常量）而不是 RAM 变量——退出判据（本文件的 100ms 服务）
+ * 和剩余时间显示（SW6306_AlgoGetLowCurrentRemainingMs）必须永远一致，
+ * 宏从根上排除"两个 RAM 值不同步"的可能。
+ * 量产值：60 分钟；实验值：1 分钟（见下方定义）。 */
+#define SW6306_LOW_CURRENT_TIMEOUT_MIN   1UL
+#define SW6306_LOW_CURRENT_TIMEOUT_MS    (SW6306_LOW_CURRENT_TIMEOUT_MIN * 60000UL)
 
 static void sw6306_algo_set_command(uint16_t mask)
 {
@@ -379,7 +386,7 @@ void SW6306_AlgoService100ms(void)
         } else {
             if (SW6306_ReadIBUS() > SW6306_LowCurrentThreshold_mA) s_last_high_load_tick = now;
             if ((uint32_t)(now - s_last_high_load_tick) >=
-                pdMS_TO_TICKS(SW6306_LowCurrentIdleTimeout_ms)) next = SW6306_SPECIAL_NONE;
+                pdMS_TO_TICKS(SW6306_LOW_CURRENT_TIMEOUT_MS)) next = SW6306_SPECIAL_NONE;
         }
     }
 
@@ -415,7 +422,7 @@ uint32_t SW6306_AlgoGetLowCurrentRemainingMs(void)
     if (SW6306_IsCharging()) return 0U;
 
     now = xTaskGetTickCount();
-    timeout_ticks = pdMS_TO_TICKS(SW6306_LowCurrentIdleTimeout_ms);
+    timeout_ticks = pdMS_TO_TICKS(SW6306_LOW_CURRENT_TIMEOUT_MS);
     elapsed = (uint32_t)(now - s_last_high_load_tick);
 
     if (elapsed >= timeout_ticks) return 0U;

@@ -40,9 +40,10 @@ extern sw6306_algo_config_t SW6306_AlgoConfig;
 
 #define SW6306_ALGO_LOAD_STEP_MS 100U
 
-/* RAM-only low-current policy: default 80mA / 1h idle. */
+/* RAM-only low-current policy: default 80mA threshold.
+ * 空闲超时改为编译期宏，定义在 sw6306_algo.c 内（退出判据与剩余时间显示
+ * 必须始终一致，故不做成可改的 RAM 变量）。 */
 extern uint16_t SW6306_LowCurrentThreshold_mA;
-extern uint32_t SW6306_LowCurrentIdleTimeout_ms;
 typedef enum {
     SW6306_SPECIAL_NONE = 0,
     SW6306_SPECIAL_LOW_CURRENT,
