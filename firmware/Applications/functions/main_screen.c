@@ -254,10 +254,9 @@ static void update_battery(void)
     }
     pct = (uint8_t)(s_bar_tenth / 10U);
     fill = 37 * (int32_t)pct / 100;
-    /* Solid A8 bitmap: body outline x=3..39, tab x=0..2.
-     * Inset the colored fill to x=4..38 (35px), tab x=1..2 (2px),
-     * leaving the same 1px rim on the right as at the top and bottom.
-     * The charging animation's s_bar_tenth cadence is unchanged. */
+    /* 主体保留 x=4..38 及上下、右侧 1px 边缘。
+     * 端部在 y=5..8 覆盖内部接缝 x=3，与主体直接相连；
+     * 端部外缘 x=0 不覆盖，原充电动画节奏不变。 */
     body = fill < 35 ? fill : 35;
     tab = fill > 35 ? fill - 35 : 0;
 
@@ -267,7 +266,8 @@ static void update_battery(void)
     lv_obj_set_style_bg_color(s_bar, lv_color_hex(
         (pct >= 30U) ? 0x00F008 : (pct >= 10U) ? 0xE8DC00 : 0xF80000), 0);
     if (tab > 0) {
-        lv_obj_set_size(s_tab, tab, 4);
+        /* 端部宽度额外包含接缝 x=3，仅覆盖内部而不触及外轮廓。 */
+        lv_obj_set_size(s_tab, tab + 1, 4);
         lv_obj_set_pos(s_tab, MAIN_BAT_X + 3 - tab, 5);
         lv_obj_remove_flag(s_tab, LV_OBJ_FLAG_HIDDEN);
     } else {
@@ -583,7 +583,7 @@ static void main_screen_create(void)
     lv_obj_set_size(s_bar, 0, 12);
     lv_obj_set_pos(s_bar, MAIN_BAT_X + 39, 1);
 
-    /* Tip appears only for fill >35; its inset is 2x4px at x=1..2, y=5..8. */
+    /* 端部在填满主体后才出现，最终覆盖 x=1..3、y=5..8，并连接主体。 */
     s_tab = lv_obj_create(s_scr);
     lv_obj_set_style_border_width(s_tab, 0, 0);
     lv_obj_set_style_radius(s_tab, 0, 0);
