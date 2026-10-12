@@ -87,8 +87,9 @@ static uint16_t speed_isqrt(uint32_t n)
  *   0..100:  2 + 0.045*(sqrt(s+100)-10)
  * 100..400:  2.1863 + 0.00159*d + 1.514e-6*d² (d=s-100)
  * 400..5000:2.8000 + 0.03606*(sqrt(s-400+52)-sqrt(52))
- * 最大斜率约0.0025px/帧/分，5000分达到5px/帧后保持不变。
- * sqrt 的输入乘2^16，结果即Q8；以下全为整数定点运算。 */
+ * 最大斜率约0.0025px/帧/分；5000分后接Hermite曲线，
+ * 12000/30000分分别6/7px每帧，之后无封顶开方增长。
+ * 前5000分保留定点整数平方根，后段使用Cortex-M4F单精度FPU。 */
 static uint32_t world_speed_q12(void)
 {
     uint32_t s = g.distance / 2U, d, root;
@@ -121,7 +122,7 @@ static uint32_t world_speed_q12(void)
                 v = 6.0f;
             }
             t = x / h; t2 = t * t; t3 = t2 * t;
-            v += (v == 5.0f ? 1.0f : 1.0f) * (-2.0f*t3 + 3.0f*t2)
+            v += (-2.0f*t3 + 3.0f*t2)
                  + (t3 - 2.0f*t2 + t)*h*m0 + (t3-t2)*h*m1;
         } else {
             v = 7.0f + 1.44f * (sqrtf(1.0f +

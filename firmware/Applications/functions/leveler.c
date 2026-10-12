@@ -5,7 +5,7 @@
  */
 #include "leveler.h"
 #include "functions.h"
-#include "sc7a20_algo.h"
+#include "applications.h"  /* 统一包含算法、驱动的已验证工程路径 */
 #include <math.h>
 #include <string.h>
 
@@ -82,8 +82,9 @@ static void print_g(uint8_t n, char axis, float g)
     uint16_t num;
     if (g > 9.99f) g = 9.99f;
     if (g < -9.99f) g = -9.99f;
-    t[0] = axis; t[1] = (g < -0.0001f) ? '-' : ' ';
+    t[0] = axis;
     num = (uint16_t)(fabsf(g) * 100.0f + 0.5f);
+    t[1] = (g < 0.0f && num != 0U) ? '-' : ' ';
     t[2] = (char)('0' + num / 100U);
     t[3] = '.';
     t[4] = (char)('0' + (num / 10U) % 10U);
@@ -111,7 +112,6 @@ static void level_tick(lv_timer_t *timer)
 {
     float x, y, z, angle, target;
     uint32_t seq;
-    uint8_t m;
     (void)timer;
     if (!SC7A20_AlgoLevelerGet(&x, &y, &z, &seq)) return;
     if (seq == s_sample_seq) return;
@@ -161,6 +161,11 @@ static void level_create(void)
     if (s_screen) return;
     s_sample_valid = 0U; s_sample_seq = 0U; s_zero_deg = 0.0f;
     s_mode = 0U;
+    /* 重入不沿用上一次的临时数值，等待load_task刷新三轴镜像。 */
+    memcpy(s_text[0], "X 0.00g", 8);
+    memcpy(s_text[1], "Y 0.00g", 8);
+    memcpy(s_text[2], "Z 0.00g", 8);
+    memcpy(s_text[3], "  0.00", 7);
     SC7A20_AlgoLevelerSet(1U);
     ui_orientation_lock_set(1U);
     s_screen = lv_obj_create(NULL);
