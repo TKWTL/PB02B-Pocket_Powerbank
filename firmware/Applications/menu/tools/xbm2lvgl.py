@@ -41,7 +41,7 @@ WANT = [
     ("img_configuration",  "menu_icon_settings", False),
     ("img_statistics",     "menu_icon_status",   False),
     ("img_tools",          "menu_icon_tools",    False),
-    ("img_games",          "menu_icon_games",    False),
+    ("img_games",          "menu_icon_games",    False),  # 小恐龙 30x30 XBM
     ("img_toby_fox",       "menu_icon_about",    True),
 ]
 

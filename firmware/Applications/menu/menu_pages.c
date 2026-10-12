@@ -42,7 +42,7 @@ char menu_status_bat[24] = "--.-V --.-A";
  * 文案策略：英文文本本身就是 key；表中只保存 key + 中文，英文态不查表。
  * 中英文完全相同的条目也无需入表，未配置时直接回退英文 key。
  * 表按【菜单顺序】排列，便于核对新增文案是否有对应条目：
- *   根图标页 → About → Status(Battery/Accelerator/Timer) → Tools → Games
+ *   根图标页 → About → Status(Battery/Accelerator/Timer) → Tools → Dino Game
  *   → Settings(PowerBank/Display/Sleep & Wake/System)
  *   → PowerBank(Protocol#1/Protocol#2/PowerLimit)
  *   → Display → Sleep & Wake → System(Clock/Language/Factory Option/Reset) → toggle/ENUM 取值
@@ -56,7 +56,7 @@ static const menu_tr_t menu_tr_table[] = {
     { "Settings", "设置" },
     { "Status", "状态" },
     { "Tools", "工具" },
-    { "Games", "游戏" },
+    { "Dino Game", "小恐龙游戏" },
     { "About", "关于" },
     /* ---- About WORD页 ---- */
     { "Pocket PowerBank", "口袋充电宝" },
@@ -104,8 +104,7 @@ static const menu_tr_t menu_tr_table[] = {
     { "Press NEXT to Exit", "按 NEXT 退出" },
     { "Press CONF to Exit", "按 CONF 退出" },
     { "Press CONF to Start", "按 CONF 开始" },
-    /* ---- Games 页 ---- */
-    { "Coming Soon", "敬请期待" },
+    /* ---- Dino Game 页 ---- */
     /* ---- Settings 页（四个子页） ---- */
     { "PowerBank", "移动电源" },
     { "Display", "显示" },
@@ -903,12 +902,12 @@ static const menu_item_t menu_items_tools[] = {
 };
 MENU_PAGE_("Tools", menu_page_tools, menu_items_tools);
 
-/* ==================== 游戏页 ==================== */
+/* ==================== 小恐龙游戏页（素材已就绪，逻辑尚未移植） ==================== */
 static const menu_item_t menu_items_games[] = {
     MENU_ITEM_BACK_("Return"),
-    MENU_ITEM_INFO_("Coming Soon"),
+    MENU_ITEM_INFO_("Dino Game"), /* 游戏运行入口将在下一阶段替换 */
 };
-MENU_PAGE_("Games", menu_page_games, menu_items_games);
+MENU_PAGE_("Dino Game", menu_page_games, menu_items_games);
 
 /* ==================== About WORD_INFO ====================
  * 3行窗口，PREV/NEXT有边界滚动，CONF返回根ICON页。 */
@@ -932,7 +931,7 @@ static const menu_item_t menu_items_root[] = {
     MENU_ITEM_PAGE_("Settings", &menu_page_settings),
     MENU_ITEM_PAGE_("Status",   &menu_page_status),
     MENU_ITEM_PAGE_("Tools",    &menu_page_tools),
-    MENU_ITEM_PAGE_("Games",    &menu_page_games),
+    MENU_ITEM_PAGE_("Dino Game", &menu_page_games),
     MENU_ITEM_PAGE_("About",    &menu_page_about),
 };
 
@@ -942,7 +941,7 @@ static const menu_icon_t menu_icons_root[] = {
     { &menu_icon_settings, &menu_icon_settings_small, "Settings" },
     { &menu_icon_status,   &menu_icon_status_small,   "Status"   },
     { &menu_icon_tools,    &menu_icon_tools_small,    "Tools"    },
-    { &menu_icon_games,    &menu_icon_games_small,    "Games"    },
+    { &menu_icon_games,    &menu_icon_games_small,    "Dino Game" },
     { &menu_icon_about,    &menu_icon_about_small,    "About"    },
 };
 MENU_PAGE_ICON_("Menu", menu_page_root, menu_items_root, menu_icons_root);
