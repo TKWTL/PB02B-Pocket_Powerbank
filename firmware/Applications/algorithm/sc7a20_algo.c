@@ -21,6 +21,32 @@ sc7a20_algo_config_t SC7A20_AlgoConfig = {
 static volatile sc7a20_orientation_t s_orientation;
 static sc7a20_orientation_t s_candidate;
 static uint8_t s_candidate_count;
+static volatile uint8_t s_leveler_active;
+static volatile uint32_t s_leveler_seq;
+static float s_leveler_x, s_leveler_y, s_leveler_z;
+static uint8_t s_leveler_valid, s_leveler_ori_div;
+
+void SC7A20_AlgoLevelerSet(uint8_t on)
+{
+    taskENTER_CRITICAL();
+    s_leveler_active = on != 0U;
+    s_leveler_valid = 0U;
+    s_leveler_ori_div = 0U;
+    taskEXIT_CRITICAL();
+}
+uint8_t SC7A20_AlgoLevelerActive(void) { return s_leveler_active; }
+uint8_t SC7A20_AlgoLevelerGet(float *x, float *y, float *z, uint32_t *seq)
+{
+    uint8_t ok;
+    taskENTER_CRITICAL();
+    ok = s_leveler_valid;
+    if (ok) {
+        *x = s_leveler_x; *y = s_leveler_y; *z = s_leveler_z;
+        *seq = s_leveler_seq;
+    }
+    taskEXIT_CRITICAL();
+    return ok;
+}
 void SC7A20_AlgoInit(void)
 {
     /* 也会在重力校准完成时由UI线程调用，因此与5Hz load_task 更新互斥。 */
@@ -75,8 +101,21 @@ void SC7A20_AlgoLoadSample(void)
     if (!SC7A20_IsInitialized()) return;
 
     SC7A20_AccelLoad();
-    if (SC7A20_IsInitialized()) {
-        SC7A20_AlgoUpdate(SC7A20_ReadX_mg());
+    if (!SC7A20_IsInitialized()) return;
+    {
+        float x = SC7A20_ReadX_mg();
+        if (s_leveler_active) {
+            float y = SC7A20_ReadY_mg(), z = SC7A20_ReadZ_mg();
+            taskENTER_CRITICAL();
+            s_leveler_x = x; s_leveler_y = y; s_leveler_z = z;
+            ++s_leveler_seq;
+            s_leveler_valid = 1U;
+            taskEXIT_CRITICAL();
+            /* 水平仪25Hz LOAD时旋转识别仍需5Hz、2秒稳定判定。 */
+            if (++s_leveler_ori_div < 5U) return;
+            s_leveler_ori_div = 0U;
+        }
+        SC7A20_AlgoUpdate(x);
     }
 }
 /************************* SC7A20 180°姿态判断算法结束 **************************/
@@ -225,7 +264,8 @@ void SC7A20_AlgoPmResume(void *ctx)
         sc7a20_wake_routes_off(); /* Release shared PB8 before returning. */
         /* Power-down mode removed XYZ enable bits; restore all of them. */
         SC7A20_ByteWrite(SC7A20_CTRG_CTRL1,
-            SC7A20_DEFAULT_ODR | SC7A20_DEFAULT_AXIS_EN);
+            (s_leveler_active ? SC7A20_ODR_50HZ : SC7A20_DEFAULT_ODR) |
+            SC7A20_DEFAULT_AXIS_EN);
         /* Once LPen is cleared, return to the 12-bit HR=1 RUN mode.
          * Respect the configurable default if HR is disabled in future. */
         SC7A20_ByteModify(SC7A20_CTRG_CTRL4, SC7A20_CTRL4_HR,

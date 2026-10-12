@@ -8,6 +8,7 @@
 #include "functions.h"
 #include "framework/pm_api.h"
 #include "at32f423.h"
+#include <math.h>
 
 #define DINO_W             160
 #define DINO_GROUND_Y       33
@@ -88,7 +89,7 @@ static uint16_t speed_isqrt(uint32_t n)
  * 400..5000:2.8000 + 0.03606*(sqrt(s-400+52)-sqrt(52))
  * 最大斜率约0.0025px/帧/分，5000分达到5px/帧后保持不变。
  * sqrt 的输入乘2^16，结果即Q8；以下全为整数定点运算。 */
-static uint16_t world_speed_q12(void)
+static uint32_t world_speed_q12(void)
 {
     uint32_t s = g.distance / 2U, d, root;
     if (s <= 100U) {
@@ -100,9 +101,34 @@ static uint16_t world_speed_q12(void)
         return (uint16_t)(8955U + (d * 652U + 50U) / 100U +
                           (d * d * 62U + 5000U) / 10000U);
     }
-    if (s >= 5000U) return 5U << DINO_SPEED_Q;
-    root = speed_isqrt((s - 400U + 52U) << 16);
-    return (uint16_t)(11469U + (577U * (root - 1846U) + 500U) / 1000U);
+    if (s <= 5000U) {
+        root = speed_isqrt((s - 400U + 52U) << 16);
+        return (uint32_t)(11469U + (577U * (root - 1846U) + 500U) / 1000U);
+    }
+    /* Cortex-M4F：用单精度硬件浮点计算后段平滑Hermite/SQRT。
+     * 5000/12000/30000分 = 5/6/7 px/帧；斜率在连接处连续。
+     * 30000以后仍按sqrt增长，不再设速度封顶。 */
+    {
+        float x, h, t, t2, t3, v, m0, m1;
+        if (s <= 30000U) {
+            if (s < 12000U) {
+                x = (float)(s - 5000U); h = 7000.0f;
+                m0 = 0.000264f; m1 = 0.000080f;
+                v = 5.0f;  /* 左端点 */
+            } else {
+                x = (float)(s - 12000U); h = 18000.0f;
+                m0 = 0.000080f; m1 = 0.000040f;
+                v = 6.0f;
+            }
+            t = x / h; t2 = t * t; t3 = t2 * t;
+            v += (v == 5.0f ? 1.0f : 1.0f) * (-2.0f*t3 + 3.0f*t2)
+                 + (t3 - 2.0f*t2 + t)*h*m0 + (t3-t2)*h*m1;
+        } else {
+            v = 7.0f + 1.44f * (sqrtf(1.0f +
+                    (float)(s - 30000U)/18000.0f) - 1.0f);
+        }
+        return (uint32_t)(v * (float)(1U << DINO_SPEED_Q) + 0.5f);
+    }
 }
 static void reset_game(void)
 {
@@ -270,15 +296,16 @@ static void draw_game(void)
 static void frame_tick(lv_timer_t *t)
 {
     static const uint8_t cactus_w[4] = {8U, 16U, 24U, 24U};
-    uint8_t i, sp;
-    uint16_t step;
+    uint8_t i;
+    uint16_t sp;
+    uint32_t step;
     (void)t;
     if (g.dead) return;
     update_sky();
     /* 累积亚像素位移，避免 Q12 速度直接取整又形成新档位。
      * 障碍、地面及云朵共用这一帧位移，碰撞与画面保持同步。 */
     step = g.distance_frac + world_speed_q12();
-    sp = (uint8_t)(step >> DINO_SPEED_Q);
+    sp = (uint16_t)(step >> DINO_SPEED_Q);
     g.distance_frac = step & ((1U << DINO_SPEED_Q) - 1U);
     g.distance += sp;
     ++g.frame;
@@ -329,7 +356,13 @@ static void frame_tick(lv_timer_t *t)
                     break;
                 }
             }
-            g.cactus_gap = 96 + (int16_t)(next_rand() % 112U);
+            /* 最小间距随速度增长，确保下一棵仙人掌不会挤进19帧跳跃窗口。 */
+            {
+                uint16_t min_gap = (uint16_t)(19U *
+                        ((world_speed_q12() + 4095U) >> DINO_SPEED_Q) + 16U);
+                if (min_gap < 96U) min_gap = 96U;
+                g.cactus_gap = (int16_t)(min_gap + next_rand() % 112U);
+            }
         }
         for (i = 0; i < DINO_CLOUD_N; ++i) {
             cloud_t *c = &g.cloud[i];

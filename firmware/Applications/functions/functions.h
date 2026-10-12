@@ -6,7 +6,7 @@
  * 各功能的实现按功能分开在各自 .c 中（无 functions_ 前缀）：
  *   - main_screen.c   主界面（待机信息屏）创建/显示
  *   - reset.c         系统复位与运输模式
- *   - leveler.c       水平仪（预备，目前无运行逻辑）
+ *   - leveler.c       水平仪（SC7A20校准数据、25Hz GUI及休眠采样切换）
  *   - dinosaur_game.c 小恐龙游戏（退出保留进度的LVGL应用）
  *   - dinosaur_icon.c 小恐龙XBM转A8图形资源
  *

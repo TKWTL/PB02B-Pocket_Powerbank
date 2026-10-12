@@ -44,7 +44,10 @@ extern sc7a20_algo_config_t SC7A20_AlgoConfig;
 
 void SC7A20_AlgoInit(void);
 void SC7A20_AlgoUpdate(float x_mg);
-void SC7A20_AlgoLoadSample(void); /* 5Hz调用：AccelLoad + 姿态算法 */
+void SC7A20_AlgoLoadSample(void); /* 常规5Hz，水平仪25Hz，自动翻转仍维持5Hz */
+void SC7A20_AlgoLevelerSet(uint8_t on); /* UI设置标志，无I2C */
+uint8_t SC7A20_AlgoLevelerActive(void);
+uint8_t SC7A20_AlgoLevelerGet(float *x, float *y, float *z, uint32_t *seq);
 sc7a20_orientation_t SC7A20_AlgoGetOrientation(void);
 
 /* pm_device callbacks: framework只负责调度，SC7A20具体低功耗策略归算法层。 */

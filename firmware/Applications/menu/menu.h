@@ -223,6 +223,7 @@ extern const menu_app_t menu_app_sos;               /* SOS */
 extern const menu_app_t menu_app_screen_test;       /* 屏幕测试 */
 extern const menu_app_t menu_app_gravity_calibrate; /* 六面重力校准 */
 extern const menu_app_t menu_app_dino;              /* 小恐龙游戏 */
+extern const menu_app_t menu_app_leveler;           /* 水平仪 */
 
 /* 应用生命周期（固化在菜单系统）：
  * enter：先 create→注册 run→menu_close(记录进入点)→redraw 触发 activate

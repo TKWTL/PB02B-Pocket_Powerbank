@@ -2,7 +2,7 @@
  *
  * 单线程负责 SD3078、SC7A20、NVM 的实际 I2C 提交：
  *  - 10ms：处理 RTC/后备电池 pending（无请求时不访问I2C）；
- *  - 200ms：SC7A20 5Hz 采样 + 上下方向算法；
+ *  - 200ms：普通SC7A20 5Hz；水平仪运行40ms LOAD/50Hz传感器；
  *  - 500ms：SD3078 Time Load、NVM dirty 合并写、WLED 慢速守护；
  *  - 60s：SD3078 Temp/VBAT Load + MS621FE Auto充电策略复核。
  * 各外设具体Load顺序/分频放在对应algo；task只提供调度节拍。
@@ -124,7 +124,8 @@ void load_task(void *pvParameters)
     uint32_t period_cnt = 0U;
     uint8_t sc7_cnt = 0U;
     uint8_t sd3078_slow_cnt = 0U;
-    uint8_t sc7_temp_cnt = 0U;
+    uint16_t sc7_temp_ticks = 0U;
+    uint8_t sc7_configured = 0xFFU;
 
     WLED_Init();
     WLED_AlgoInit();
@@ -143,14 +144,25 @@ void load_task(void *pvParameters)
             if (st != I2C_OK) s_sd3078_status = st;
         }
 
-        /* 5Hz SC7A20：只有本周期路径推进姿态计时，确保连续约2s才翻转。 */
-        if (++sc7_cnt >= (SC7A20_ALGO_SAMPLE_MS / 10U)) {
-            sc7_cnt = 0U;
-            SC7A20_AlgoLoadSample();
-            /* SC7A20 temperature mirror at 0.5Hz; don't add UI-thread I2C. */
-            if (++sc7_temp_cnt >= 10U) {
-                sc7_temp_cnt = 0U;
-                if (SC7A20_IsInitialized()) SC7A20_TempLoad();
+        /* 只有load_task配置运行ODR，UI不碰I2C；DeepSleep挂起时本段不执行。
+         * PM恢复先按当前水平仪标志恢复50Hz，退出水平仪后这里退回25Hz。 */
+        {
+            uint8_t active = SC7A20_AlgoLevelerActive();
+            uint8_t ticks = active ? 4U : (SC7A20_ALGO_SAMPLE_MS / 10U);
+            if (SC7A20_IsInitialized() && sc7_configured != active) {
+                SC7A20_SetODR(active ? SC7A20_ODR_50HZ : SC7A20_DEFAULT_ODR);
+                sc7_configured = active;
+                sc7_cnt = 0U;
+            }
+            if (++sc7_cnt >= ticks) {
+                sc7_cnt = 0U;
+                SC7A20_AlgoLoadSample();
+                /* Temp继续0.5Hz，避免水平仪模式额外高频读温度。 */
+                sc7_temp_ticks += ticks;
+                if (sc7_temp_ticks >= 200U) {
+                    sc7_temp_ticks = 0U;
+                    if (SC7A20_IsInitialized()) SC7A20_TempLoad();
+                }
             }
         }
 
@@ -163,7 +175,8 @@ void load_task(void *pvParameters)
             sd3078_try_init();
 
             if (!SC7A20_IsInitialized()) {
-                SC7A20_Init();       /* 传感器25Hz，应用层按5Hz读取 */
+                SC7A20_Init();       /* 初始化默认25Hz；下一轮按水平仪需求切50Hz */
+                sc7_configured = 0xFFU;
                 SC7A20_AlgoInit();
                 exint_flag_clear(EXINT_LINE_8);
                 NVIC_ClearPendingIRQ(EXINT9_5_IRQn);

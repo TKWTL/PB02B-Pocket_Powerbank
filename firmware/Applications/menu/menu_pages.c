@@ -896,7 +896,7 @@ MENU_WORD_CONFIRM_(menu_page_accel_calibrate, word_accel_calibrate, gravity_cali
 
 static const menu_item_t menu_items_tools[] = {
     MENU_ITEM_BACK_("Return"),
-    MENU_ITEM_ACTION_("Leveler", placeholder_apply),
+    MENU_ITEM_APP_("Leveler", &menu_app_leveler),
     MENU_ITEM_PAGE_("SOS Blink", &menu_page_sos),
     MENU_ITEM_PAGE_("Screen Test", &menu_page_screen_test_confirm),
     MENU_ITEM_PAGE_("Gravity Calibrate", &menu_page_accel_calibrate),
