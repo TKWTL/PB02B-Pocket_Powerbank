@@ -746,8 +746,8 @@ SW6306_RET SW6306_ProtocolEnable(SW6306_ARGS(sw6306_proto_t proto, sw6306_proto_
             else { reg = SW6306_CTRG_P_DPDM5; mask = SW6306_P_DPDM5_NOAFC; }
             break;
         case SW6306_PROTO_SCP:
-            if(dir == SW6306_PROTO_DIR_SOURCE) { reg = SW6306_CTRG_P_DPDM3; mask = SW6306_P_DPDM3_NOSCP_HV | SW6306_P_DPDM3_NOSCP_LV; }
-            else { reg = SW6306_CTRG_P_DPDM5; mask = SW6306_P_DPDM5_NOSCP; }
+            if(dir != SW6306_PROTO_DIR_SINK) { SW6306_FUNC_END; return; }
+            reg = SW6306_CTRG_P_DPDM5; mask = SW6306_P_DPDM5_NOSCP;
             break;
         case SW6306_PROTO_PE:
             if(dir != SW6306_PROTO_DIR_SOURCE) { SW6306_FUNC_END; return; } /* 手册无 PE sink 位 */
@@ -788,6 +788,37 @@ SW6306_RET SW6306_ProtocolEnable(SW6306_ARGS(sw6306_proto_t proto, sw6306_proto_
         /* 常规协议 active low（0=使能/1=禁止）：enable=1 使能 → 清位；enable=0 禁止 → 置位 */
         SW6306_SPAWN_ARGS(SW6306_ByteModify, reg, mask, enable ? 0x00 : mask);
     }
+    SW6306_MUTEX_GIVE;
+    SW6306_FUNC_END;
+}
+
+/* 高压/低压SCP source独立开关：REG0x12A[1:0]，0=使能、1=禁止。
+ * 只写目标位，保持QC/FCP/AFC及reserved位不变。 */
+SW6306_RET SW6306_SCPSourceSet(SW6306_ARGS(uint8_t hv_enable, uint8_t lv_enable))
+{
+    const uint8_t mask = SW6306_P_DPDM3_NOSCP_HV | SW6306_P_DPDM3_NOSCP_LV;
+    uint8_t value = (hv_enable ? 0U : SW6306_P_DPDM3_NOSCP_HV) |
+                    (lv_enable ? 0U : SW6306_P_DPDM3_NOSCP_LV);
+    SW6306_FUNC_BEGIN;
+    SW6306_MUTEX_TAKE;
+    SW6306_SPAWN_ARGS(SW6306_RegsetSwitch, SW6306_CTRG_P_DPDM3);
+    SW6306_SPAWN_ARGS(SW6306_ByteModify, SW6306_CTRG_P_DPDM3, mask, value);
+    SW6306_MUTEX_GIVE;
+    SW6306_FUNC_END;
+}
+
+/* PD source让位设置：REG0x133[5:3]，0=响应、1=不响应。
+ * 不修改同寄存器的PD source开关bit7和reserved位。 */
+SW6306_RET SW6306_PDSourceYieldSet(SW6306_ARGS(uint8_t scp, uint8_t vooc, uint8_t ufcs))
+{
+    const uint8_t mask = SW6306_PD0_NOSCP | SW6306_PD0_NOVOOC | SW6306_PD0_NOUFCS;
+    uint8_t value = (scp ? 0U : SW6306_PD0_NOSCP) |
+                    (vooc ? 0U : SW6306_PD0_NOVOOC) |
+                    (ufcs ? 0U : SW6306_PD0_NOUFCS);
+    SW6306_FUNC_BEGIN;
+    SW6306_MUTEX_TAKE;
+    SW6306_SPAWN_ARGS(SW6306_RegsetSwitch, SW6306_CTRG_PD0);
+    SW6306_SPAWN_ARGS(SW6306_ByteModify, SW6306_CTRG_PD0, mask, value);
     SW6306_MUTEX_GIVE;
     SW6306_FUNC_END;
 }

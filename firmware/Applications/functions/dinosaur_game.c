@@ -415,17 +415,11 @@ static void game_create(void)
     hud = label("*** HI 00000  00000", 8, 0, 152);
     lv_obj_set_style_text_font(hud, &lv_font_unscii_8, 0);
     lv_obj_set_height(hud, 9); /* UNSCII-8 行高9，字宽8；17字符仍为136px */
-    /* 结束界面文案走 i18n（menu_tr）：key 为英文，中文取自 menu_tr_table。
-     * 注意：新增中文必须同时出现在 menu_pages.c 的 menu_tr_table 里——
-     * tools/fonts/build_lvgl_font.py 只从该表提取汉字生成字库子集，
-     * 表里没有的字在当前字体下没有字形、会显示空白。
-     *
-     * 宽度：标签从 80px 加宽到 100px。实测中文字体下
-     *   "GAME OVER"=63px、"游戏结束"=48px、"跳跃以重新开始"=84px，
-     * 原来 80px 会把 84px 的中文截断。英文 "JUMP TO RESTART"=102px
-     * 仍略超 2px，若要英文态也完整显示需再放宽到 104px（屏幕宽 160 够用）。 */
-    over[0] = label(menu_tr("GAME OVER"), 80, 13, 80);
-    over[1] = label(menu_tr("JUMP TO RESTART"), 30, 26, 100);
+    /* 中文结束语按实机反馈右移8/36px；英文提示较长，单独避免截断。 */
+    over[0] = label(menu_tr("GAME OVER"), 88, 13, 72);
+    over[1] = (menu_lang_get() == MENU_LANG_ZH) ?
+              label(menu_tr("JUMP TO RESTART"), 66, 26, 94) :
+              label(menu_tr("JUMP TO RESTART"), 52, 26, 108);
     for (i = 0; i < 2; ++i) {
         lv_obj_set_style_bg_color(over[i], lv_color_hex(0x101010), 0);
         lv_obj_set_style_bg_opa(over[i], LV_OPA_COVER, 0);

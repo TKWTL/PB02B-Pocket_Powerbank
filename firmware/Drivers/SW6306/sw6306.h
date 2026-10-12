@@ -1317,7 +1317,7 @@ typedef enum {
     SW6306_PROTO_QC,        /* QC2/QC3/QC3+ */
     SW6306_PROTO_FCP,
     SW6306_PROTO_AFC,
-    SW6306_PROTO_SCP,
+    SW6306_PROTO_SCP,       /* 仅sink，source通过SCPSourceSet分别控制高/低压 */
     SW6306_PROTO_PE,
     SW6306_PROTO_SFCP,
     SW6306_PROTO_VOOC,
@@ -1385,8 +1385,12 @@ uint8_t SW6306_GetMaxOutputPowerSetting(void);  //读取当前目标最大输出
 const char *SW6306_ReadProtocol(void);          //读取协议名称字符串
 /* 端口快充总开关（0x11F PORTQC，0=使能/1=禁止；A 口仅输出方向） */
 SW6306_RET SW6306_PortFastChargeSet(SW6306_ARGS(sw6306_port_t port, sw6306_port_dir_t dir, uint8_t enable));
-/* 全局协议开关（source/sink；PD/PPS 已实现；QC/FCP/AFC/SCP/PE/SFCP/VOOC/SVOOC/UFCS 位定义待补） */
+/* 全局协议开关：SCP仅管理sink，source高低压分别通过SCPSourceSet管理。 */
 SW6306_RET SW6306_ProtocolEnable(SW6306_ARGS(sw6306_proto_t proto, sw6306_proto_dir_t dir, uint8_t enable));
+/* 0x12A[1:0]：高压/低压SCP source，1=使能；单次读改写保留其它位。 */
+SW6306_RET SW6306_SCPSourceSet(SW6306_ARGS(uint8_t hv_enable, uint8_t lv_enable));
+/* 0x133[5:3]：PD source进入后是否响应SCP/VOOC/UFCS，1=响应。 */
+SW6306_RET SW6306_PDSourceYieldSet(SW6306_ARGS(uint8_t scp, uint8_t vooc, uint8_t ufcs));
 /* PPS 档位开关：只提供 PPS1/PPS3（PPS0/PPS2 始终不使用，由 Init 禁止） */
 typedef enum {
     SW6306_PPS_1 = 0,   /* PPS1（最大 11V） */

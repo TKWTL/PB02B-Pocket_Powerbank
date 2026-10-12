@@ -16,13 +16,17 @@ extern "C" {
 typedef struct {
     uint8_t pd_out;
     uint8_t pd_in;
+    uint8_t pd_to_scp;
+    uint8_t pd_to_vooc;
+    uint8_t pd_to_ufcs;
     uint8_t pps1;
     uint8_t pps3;
     uint8_t qc;
     uint8_t fcp;
     uint8_t afc_out;
     uint8_t afc_in;
-    uint8_t scp_out;
+    uint8_t hvscp_out;
+    uint8_t lvscp_out;
     uint8_t scp_in;
     uint8_t pe;
     uint8_t sfcp;

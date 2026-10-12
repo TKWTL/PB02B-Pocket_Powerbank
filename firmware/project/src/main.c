@@ -43,7 +43,7 @@
 /* private define ------------------------------------------------------------*/
 /* add user code begin private define */
 /* 固件/硬件信息（启动 banner 用；固件版本与 UI 菜单 Version 显示保持一致） */
-#define FW_VERSION_STR      "1.2.0"
+#define FW_VERSION_STR      "1.2.1"
 #define PROJECT_NAME_STR    "Pocket PowerBank"
 #define HW_VERSION_STR      "Rev.A"
 /* add user code end private define */

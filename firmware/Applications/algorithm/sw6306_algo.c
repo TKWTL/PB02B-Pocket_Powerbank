@@ -32,10 +32,11 @@
 
 sw6306_algo_config_t SW6306_AlgoConfig = {
     1U, 1U,             /* PD out/in */
+    1U, 1U, 1U,         /* PD to SCP/VOOC/UFCS：默认响应 */
     1U, 1U,             /* PPS1/PPS3 */
     1U, 1U,             /* QC/FCP */
     1U, 1U,             /* AFC out/in */
-    1U, 1U,             /* SCP out/in */
+    1U, 1U, 1U,         /* HVSCP out/LVSCP out/SCP in */
     1U, 1U,             /* PE/SFCP */
     1U, 1U,             /* VOOC out/in */
     1U,                 /* SVOOC */
@@ -455,13 +456,15 @@ void SW6306_AlgoProcessCommands(void)
     if (cmd & SW6306_CMD_PROTOCOL) {
         SW6306_ProtocolEnable(SW6306_PROTO_PD,    SW6306_PROTO_DIR_SOURCE, SW6306_AlgoConfig.pd_out);
         SW6306_ProtocolEnable(SW6306_PROTO_PD,    SW6306_PROTO_DIR_SINK,   SW6306_AlgoConfig.pd_in);
+        SW6306_PDSourceYieldSet(SW6306_AlgoConfig.pd_to_scp,
+                                SW6306_AlgoConfig.pd_to_vooc, SW6306_AlgoConfig.pd_to_ufcs);
         SW6306_PPSEnable(SW6306_PPS_1, SW6306_AlgoConfig.pps1);
         SW6306_PPSEnable(SW6306_PPS_3, SW6306_AlgoConfig.pps3);
         SW6306_ProtocolEnable(SW6306_PROTO_QC,    SW6306_PROTO_DIR_SOURCE, SW6306_AlgoConfig.qc);
         SW6306_ProtocolEnable(SW6306_PROTO_FCP,   SW6306_PROTO_DIR_SOURCE, SW6306_AlgoConfig.fcp);
         SW6306_ProtocolEnable(SW6306_PROTO_AFC,   SW6306_PROTO_DIR_SOURCE, SW6306_AlgoConfig.afc_out);
         SW6306_ProtocolEnable(SW6306_PROTO_AFC,   SW6306_PROTO_DIR_SINK,   SW6306_AlgoConfig.afc_in);
-        SW6306_ProtocolEnable(SW6306_PROTO_SCP,   SW6306_PROTO_DIR_SOURCE, SW6306_AlgoConfig.scp_out);
+        SW6306_SCPSourceSet(SW6306_AlgoConfig.hvscp_out, SW6306_AlgoConfig.lvscp_out);
         SW6306_ProtocolEnable(SW6306_PROTO_SCP,   SW6306_PROTO_DIR_SINK,   SW6306_AlgoConfig.scp_in);
         SW6306_ProtocolEnable(SW6306_PROTO_PE,    SW6306_PROTO_DIR_SOURCE, SW6306_AlgoConfig.pe);
         SW6306_ProtocolEnable(SW6306_PROTO_SFCP,  SW6306_PROTO_DIR_SOURCE, SW6306_AlgoConfig.sfcp);

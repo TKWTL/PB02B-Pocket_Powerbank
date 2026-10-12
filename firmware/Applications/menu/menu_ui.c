@@ -273,7 +273,11 @@ static void header_set_text(const char *title)
     int32_t width = menu_fixed_text_w(s_header, MENU_TEXT_HEADER_CHARS);
     int32_t available = MENU_SCR_W -
                         menu_fixed_text_w(s_item_next, MENU_TEXT_NEXT_CHARS) - 4;
-    int32_t height = lv_font_get_line_height(font);
+    /* 中文字形基线已下移2px；header曾被单独锁为12px高，
+     * 导致标题LABEL自身截掉尾部笔画，并非屏幕边缘裁切。
+     * 仅给中文标题增加2px绘制高度，不触碰其动画坐标。 */
+    int32_t height = lv_font_get_line_height(font) +
+                     (menu_lang_get() == MENU_LANG_ZH ? 2 : 0);
     if (width > available) width = available;
     if (width < 1) width = 1;
 

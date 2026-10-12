@@ -15,6 +15,6 @@ Keil MDK 工程编译上述 C 字体，LVGL 用 `LV_FONT_CUSTOM_DECLARE` 声明�
 ## 本次子集调整与中文基线
 
 - 菜单当前翻译表（含五项后续协议策略的预留翻译）决定字符集；保留 ASCII 32–126、°、？。移除已不需要的“硬”。
-- 旧版 292 个仍然使用的 Fusion Pixel 字形保持逐位不变。新增 16 个汉字（使压基打救新束求组结计让跃跳隔面）由于本次未取得完整上游 BDF，采用 Noto Sans CJK SC Regular 的 11×11、单色栅格化字形临时补齐（Copyright 2010–2012 Google, SIL OFL 1.1）。与 Fusion Pixel 字体均按本目录 `LICENSE-OFL` 提供的 OFL 1.1 使用，并保留上述来源说明。
+- 使用原始 `fusion-pixel-12px-proportional-zh_hans.bdf` 提取新增16字（使压基打救新束求组结计让跃跳隔面）的原生11×11位图。现在308字均为Fusion Pixel原始位图，不再混用此前临时Noto字形；均遵循SIL OFL 1.1。
 - 字体 `.line_height=12`、`.base_line=0`：原始基线 2 下移 2px，只调整中文字形的显示，不改变 TEXT/WORD 菜单动画的 LABEL 坐标或行距。ICON 的中文标题同样使用这套基线。
-- 在可获得原始 BDF 时运行生成器（默认 `--baseline-shift 2`）可替换临时补齐的 16 个 Noto 字形为对应的原生 Fusion Pixel 字形。
+- 完整BDF已取得，16个临时字形均已替换；新增文案继续由脚本（默认 `--baseline-shift 2`）重新生成同风格字体。

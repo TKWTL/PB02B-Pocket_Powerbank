@@ -61,7 +61,7 @@ static const menu_tr_t menu_tr_table[] = {
     { "About", "关于" },
     /* ---- About WORD页 ---- */
     { "Pocket PowerBank", "口袋充电宝" },
-    { "Firmware 1.2.0", "固件 1.2.0" },
+    { "Firmware 1.2.1", "固件 1.2.1" },
     { "Author:TKWTL   Git:", "作者:TKWTL   Git:" },
     { "Powered by:", "基于" },
     /* ---- Status 页 ---- */
@@ -127,14 +127,12 @@ static const menu_tr_t menu_tr_table[] = {
     /* PowerBank → Protocol#2（其它快充协议） */
     { "AFC out", "AFC 输出" },
     { "AFC in", "AFC 输入" },
-    { "SCP out", "SCP 输出" },
+    { "HVSCP out", "高压SCP" },
+    { "LVSCP out", "低压SCP" },
     { "SCP in", "SCP 输入" },
-    /* 为后续协议策略预留翻译，不在当前菜单增加功能入口 */
-    { "High Voltage SCP", "高压SCP" },
-    { "Low Voltage SCP", "低压SCP" },
-    { "PD Yield to SCP", "PD让位SCP" },
-    { "PD Yield to VOOC", "PD让位VOOC" },
-    { "PD Yield to UFCS", "PD让位UFCS" },
+    { "PD to SCP", "PD让位SCP" },
+    { "PD to VOOC", "PD让位VOOC" },
+    { "PD to UFCS", "PD让位UFCS" },
     { "VOOC out", "VOOC 输出" },
     { "VOOC in", "VOOC 输入" },
     /* PowerBank → PowerLimit */
@@ -491,6 +489,10 @@ static const menu_item_t menu_items_protocol1[] = {
     MENU_ITEM_BACK_("Return"),
     MENU_ITEM_TOGGLE_("PD out",  &SW6306_AlgoConfig.pd_out,  "On", "Off", proto_apply),
     MENU_ITEM_TOGGLE_("PD in",   &SW6306_AlgoConfig.pd_in,   "On", "Off", proto_apply),
+    /* 0x133[5:3]：On=PD允许对应协议响应（PD让位） */
+    MENU_ITEM_TOGGLE_("PD to SCP",  &SW6306_AlgoConfig.pd_to_scp,  "On", "Off", proto_apply),
+    MENU_ITEM_TOGGLE_("PD to VOOC", &SW6306_AlgoConfig.pd_to_vooc, "On", "Off", proto_apply),
+    MENU_ITEM_TOGGLE_("PD to UFCS", &SW6306_AlgoConfig.pd_to_ufcs, "On", "Off", proto_apply),
     MENU_ITEM_ACTION_("PPS Broadcast", pps_broadcast_apply),   /* PPS 设置项之前：手动播发能力 */
     MENU_ITEM_TOGGLE_("11V PPS", &SW6306_AlgoConfig.pps1,    "On", "Off", proto_apply),  /* 原 PPS1 */
     MENU_ITEM_TOGGLE_("21V PPS", &SW6306_AlgoConfig.pps3,    "On", "Off", proto_apply),  /* 原 PPS3 */
@@ -507,7 +509,8 @@ static const menu_item_t menu_items_protocol2[] = {
     MENU_ITEM_TOGGLE_("FCP",     &SW6306_AlgoConfig.fcp,     "On", "Off", proto_apply),
     MENU_ITEM_TOGGLE_("AFC out", &SW6306_AlgoConfig.afc_out, "On", "Off", proto_apply),
     MENU_ITEM_TOGGLE_("AFC in",  &SW6306_AlgoConfig.afc_in,  "On", "Off", proto_apply),
-    MENU_ITEM_TOGGLE_("SCP out", &SW6306_AlgoConfig.scp_out, "On", "Off", proto_apply),
+    MENU_ITEM_TOGGLE_("HVSCP out", &SW6306_AlgoConfig.hvscp_out, "On", "Off", proto_apply),
+    MENU_ITEM_TOGGLE_("LVSCP out", &SW6306_AlgoConfig.lvscp_out, "On", "Off", proto_apply),
     MENU_ITEM_TOGGLE_("SCP in",  &SW6306_AlgoConfig.scp_in,  "On", "Off", proto_apply),
     MENU_ITEM_TOGGLE_("PE",      &SW6306_AlgoConfig.pe,      "On", "Off", proto_apply),
     MENU_ITEM_TOGGLE_("SFCP",    &SW6306_AlgoConfig.sfcp,    "On", "Off", proto_apply),
@@ -923,7 +926,7 @@ static const char * const word_about[] = {
     "Powered by:",
     "SW6306 + 2S 18650",
     "AT32F423 + LVGL 9.4",
-    "Firmware 1.2.0",
+    "Firmware 1.2.1",
 };
 MENU_WORD_INFO_(menu_page_about, word_about);
 
