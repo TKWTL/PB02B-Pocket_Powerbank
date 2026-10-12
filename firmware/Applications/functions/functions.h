@@ -6,9 +6,12 @@
  * 各功能的实现按功能分开在各自 .c 中（无 functions_ 前缀）：
  *   - main_screen.c   主界面（待机信息屏）创建/显示
  *   - reset.c         系统复位与运输模式
+ *   - leveler.c       水平仪（预备，目前无运行逻辑）
+ *   - dinosaur_game.c 小恐龙游戏（预备，目前无运行逻辑）
+ *   - dinosaur_icon.c 小恐龙图形资源（预备，目前不含位图）
  *
  * 新增功能函数步骤：
- *  1. 新建 functions_<功能>.c 实现（含本头文件以保持声明一致）；
+ *  1. 新建对应的 <功能>.c/.h 并保持同名（如 leveler.c/.h）；
  *  2. 在本头文件声明；
  *  3. 在 menu_pages.c 用 MENU_ITEM_ACTION_("名称", 函数名) 挂载；
  *  4. 在 Keil 工程 Functions group 加入新 .c。

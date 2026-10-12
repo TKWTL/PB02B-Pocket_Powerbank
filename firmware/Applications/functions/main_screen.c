@@ -253,24 +253,20 @@ static void update_battery(void)
         s_bar_tenth = (uint16_t)actual * 10U;
     }
     pct = (uint8_t)(s_bar_tenth / 10U);
-    fill = 38 * (int32_t)pct / 100;
-    /* 主体宽度上限 37，而不是 38：实心图案里主体占局部 x=3..38（36px），
-     * 端部占 x=0..2。上限取 37 并让条右缘对齐 MAIN_BAT_X+39（图案 x=39），
-     * 条左端即落到 MAIN_BAT_X+3（图案 x=3），正好覆盖主体起始处。 */
+    fill = 40 * (int32_t)pct / 100;
+    /* Solid A8 bitmap: body x=3..39 (37px), tab x=0..2 (3px)
+     * only at y=4..9. Keep the same s_bar_tenth charge animation. */
     body = fill < 37 ? fill : 37;
     tab = fill > 37 ? fill - 37 : 0;
 
-    /* 电量条尺寸按实心电池位图适配：
-     *  - 高度 12（y1..y12）：主体实心区为 y0..y13，条上下各内缩 1px，
-     *    使上下沿都落在图标实心区内、不露出边界。
-     *  - 端部小条（tab）同高同 y，满格时与主体齐平、无台阶。 */
+    /* Bar remains inside the body shape with one-pixel vertical inset. */
     lv_obj_set_size(s_bar, body, 12);
-    lv_obj_set_pos(s_bar, MAIN_BAT_X + 39 - body, 1);
+    lv_obj_set_pos(s_bar, MAIN_BAT_X + 40 - body, 1);
     lv_obj_set_style_bg_color(s_bar, lv_color_hex(
         (pct >= 30U) ? 0x00F008 : (pct >= 10U) ? 0xE8DC00 : 0xF80000), 0);
     if (tab > 0) {
-        lv_obj_set_size(s_tab, tab, 12);
-        lv_obj_set_pos(s_tab, MAIN_BAT_X + 4 - tab, 1);
+        lv_obj_set_size(s_tab, tab, 6);
+        lv_obj_set_pos(s_tab, MAIN_BAT_X + 3 - tab, 4);
         lv_obj_remove_flag(s_tab, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_tab, LV_OBJ_FLAG_HIDDEN);
@@ -585,16 +581,16 @@ static void main_screen_create(void)
     lv_obj_set_style_pad_all(s_bar, 0, 0);
     lv_obj_remove_flag(s_bar, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(s_bar, 0, 12);
-    lv_obj_set_pos(s_bar, MAIN_BAT_X + 39, 1);
+    lv_obj_set_pos(s_bar, MAIN_BAT_X + 40, 1);
 
-    /* 左侧小凸起（端部）：只在电量很高（fill > 35）时才点亮 */
+    /* Tip appears only for fill >37; its shape is 3x6px at y=4..9. */
     s_tab = lv_obj_create(s_scr);
     lv_obj_set_style_border_width(s_tab, 0, 0);
     lv_obj_set_style_radius(s_tab, 0, 0);
     lv_obj_set_style_pad_all(s_tab, 0, 0);
     lv_obj_remove_flag(s_tab, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_size(s_tab, 0, 12);
-    lv_obj_set_pos(s_tab, MAIN_BAT_X + 3, 1);
+    lv_obj_set_size(s_tab, 0, 6);
+    lv_obj_set_pos(s_tab, MAIN_BAT_X + 3, 4);
     lv_obj_set_style_bg_color(s_tab, lv_color_hex(0x00F008), 0);
     lv_obj_add_flag(s_tab, LV_OBJ_FLAG_HIDDEN);   /* 默认隐藏，由刷新逻辑按需显示 */
 

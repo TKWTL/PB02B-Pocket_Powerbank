@@ -339,7 +339,7 @@
               <MiscControls></MiscControls>
               <Define>AT32F423KCU7_4, USE_STDPERIPH_DRIVER, AT_START_F423_V1, LV_LVGL_H_INCLUDE_SIMPLE, LV_CONF_INCLUDE_SIMPLE</Define>
               <Undefine></Undefine>
-              <IncludePath>..\..\libraries\drivers\inc;..\..\libraries\cmsis\cm4\core_support;..\..\libraries\cmsis\cm4\device_support;..\inc;..\..\Bootstrap\inc;..\..\Drivers;..\..\Drivers\GC9D01;..\..\Drivers\SW6306;..\..\Drivers\SC7A20;..\..\Drivers\SD3078;..\..\Applications\LVGL;..\..\Applications\LVGL\porting;..\..\Applications\LVGL\src;..\..\Applications\LVGL\src\tick;..\..\Applications;..\..\Applications\menu;..\..\Applications\functions;..\..\Drivers\Buttons;..\..\Drivers\WLED;..\..\Applications\framework;../../middlewares/freertos/source/include;../../middlewares/freertos/source/portable/memmang;../../middlewares/freertos/source/portable/GCC/ARM_CM4F;../../middlewares/i2c_application_library</IncludePath>
+              <IncludePath>..\..\libraries\drivers\inc;..\..\libraries\cmsis\cm4\core_support;..\..\libraries\cmsis\cm4\device_support;..\inc;..\..\Bootstrap\inc;..\..\Drivers;..\..\Drivers\GC9D01;..\..\Drivers\SW6306;..\..\Drivers\SC7A20;..\..\Drivers\SD3078;..\..\Applications\LVGL;..\..\Applications\LVGL\porting;..\..\Applications\LVGL\src;..\..\Applications\LVGL\src\tick;..\..\Applications;..\..\Applications\menu;..\..\Applications\functions;..\..\Drivers\Buttons;..\..\Drivers\WLED;..\..\Applications\framework;../../middlewares/freertos/source/include;../../middlewares/freertos/source/portable/memmang;../../middlewares/freertos/source/portable/GCC/ARM_CM4F</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -412,11 +412,6 @@
               <FileName>include_port.c</FileName>
               <FileType>1</FileType>
               <FilePath>../src/include_port.c</FilePath>
-            </File>
-            <File>
-              <FileName>i2c_app.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../src/i2c_app.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -542,16 +537,6 @@
               <FileName>startup_at32f423.s</FileName>
               <FileType>2</FileType>
               <FilePath>.\startup_at32f423.s</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>middlewares/i2c_application</GroupName>
-          <Files>
-            <File>
-              <FileName>i2c_application.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../../middlewares/i2c_application_library/i2c_application.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -2792,6 +2777,21 @@
               <FileName>gravity_calibrate.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\Applications\functions\gravity_calibrate.c</FilePath>
+            </File>
+                      <File>
+              <FileName>leveler.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\Applications\functions\leveler.c</FilePath>
+            </File>
+                      <File>
+              <FileName>dinosaur_game.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\Applications\functions\dinosaur_game.c</FilePath>
+            </File>
+                      <File>
+              <FileName>dinosaur_icon.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\Applications\functions\dinosaur_icon.c</FilePath>
             </File>
           </Files>
         </Group>

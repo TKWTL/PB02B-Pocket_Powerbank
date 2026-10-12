@@ -6,7 +6,33 @@ extern "C" {
 #endif
 
 #include "at32f423_wk_config.h"
-#include "i2c_application.h"
+/* Native BSP contract; vendor i2c_application.h is no longer a dependency. */
+typedef enum { I2C_MEM_ADDR_WIDIH_8=1, I2C_MEM_ADDR_WIDIH_16=2 } i2c_mem_address_width_type;
+typedef enum { I2C_INT_MA_TX=0, I2C_INT_MA_RX=1 } i2c_mode_type;
+typedef enum {
+    I2C_OK=0, I2C_ERR_STEP_1, I2C_ERR_STEP_2, I2C_ERR_STEP_3,
+    I2C_ERR_STEP_4, I2C_ERR_STEP_5, I2C_ERR_STEP_6, I2C_ERR_STEP_7,
+    I2C_ERR_STEP_8, I2C_ERR_STEP_9, I2C_ERR_STEP_10, I2C_ERR_STEP_11,
+    I2C_ERR_STEP_12, I2C_ERR_TCRLD, I2C_ERR_TDC, I2C_ERR_ADDR,
+    I2C_ERR_STOP, I2C_ERR_ACKFAIL, I2C_ERR_TIMEOUT, I2C_ERR_INTERRUPT
+} i2c_status_type;
+typedef struct {
+    i2c_type *i2cx;
+    uint8_t *pbuff;
+    __IO uint16_t psize, pcount;
+    __IO uint32_t mode, status;
+    __IO i2c_status_type error_code;
+} i2c_handle_type;
+
+extern i2c_handle_type hi2c1;
+void wk_i2c_app_init(void); /* Called by Workbench-generated main.c */
+i2c_status_type i2c_master_transmit(i2c_handle_type *, uint16_t, uint8_t *, uint16_t, uint32_t);
+i2c_status_type i2c_master_transmit_int(i2c_handle_type *, uint16_t, uint8_t *, uint16_t, uint32_t);
+i2c_status_type i2c_master_receive_int(i2c_handle_type *, uint16_t, uint8_t *, uint16_t, uint32_t);
+i2c_status_type i2c_memory_write_int(i2c_handle_type *, i2c_mem_address_width_type, uint16_t, uint16_t, uint8_t *, uint16_t, uint32_t);
+i2c_status_type i2c_memory_read_int(i2c_handle_type *, i2c_mem_address_width_type, uint16_t, uint16_t, uint8_t *, uint16_t, uint32_t);
+void i2c_evt_irq_handler(i2c_handle_type *);
+void i2c_err_irq_handler(i2c_handle_type *);
     
 //启动前等待 BUSY 释放的“循环计数”上限（不是毫秒）
 #ifndef BSP_I2C_START_WAIT_CNT
@@ -18,12 +44,12 @@ extern "C" {
 #define BSP_I2C_SESSION_TIMEOUT_MS  30U
 #endif
 
-/* hi2c.status 的“完成”值（对应 i2c_application.c 内部宏 I2C_END：0=I2C_START 1=I2C_END） */
+/* hi2c.status END = 1; status reset to START = 0 */
 #define BSP_I2C_STATUS_END   1U
     
 extern TaskHandle_t i2c_wait_task;
 
-/* I2C 故障现场（sticky）：在错误中断入口抓取，早于官方 i2c_err_irq_handler()
+/* I2C 故障现场（sticky）：在错误中断入口抓取，早于 BSP i2c_err_irq_handler()
  * 清标志，因此能在调试器 Watch 中看到“最初的错误现场”。复位后自动清零。
  *  - sts   : I2C1->sts（BUSERR 0x0100 / ARLOST 0x0200 / OUF 0x0400 / TMOUT 0x1000 …）
  *  - ctrl1 : 中断使能/外设使能状态；ctrl2: master/slave 与停止模式
