@@ -20,6 +20,7 @@ static lv_obj_t *s_screen, *s_canvas, *s_label[4], *s_degree;
 static lv_timer_t *s_timer;
 /* I2调色板16字节 + 880字节像素；4字节自然对齐。 */
 static uint32_t s_canvas_buf[(LEVEL_BUF_BYTES + 3) / 4];
+static lv_draw_buf_t s_canvas_draw_buf; /* 指明包含I2 palette的完整字节数 */
 static char s_text[4][9] = {"X 0.00g", "Y 0.00g", "Z 0.00g", "  0.00"};
 static float s_ax, s_ay, s_az, s_zero_deg;
 static uint32_t s_sample_seq;
@@ -178,7 +179,11 @@ static void level_create(void)
     lv_obj_set_scrollbar_mode(s_screen, LV_SCROLLBAR_MODE_OFF);
 
     s_canvas = lv_canvas_create(s_screen);
-    lv_canvas_set_buffer(s_canvas, s_canvas_buf, LEVEL_W, LEVEL_H, LV_COLOR_FORMAT_I2);
+    /* 本仓库LVGL的canvas_set_buffer将data_size设为stride×height，
+     * 漏算16字节调色板；用显式draw_buf传入完整896字节避免尾行越界。 */
+    lv_draw_buf_init(&s_canvas_draw_buf, LEVEL_W, LEVEL_H, LV_COLOR_FORMAT_I2,
+                     LEVEL_STRIDE, s_canvas_buf, sizeof(s_canvas_buf));
+    lv_canvas_set_draw_buf(s_canvas, &s_canvas_draw_buf);
     lv_obj_set_pos(s_canvas, 0, 0);
     palette_set(0U, 0, 0, 0);
     palette_set(1U, 255, 255, 255);
