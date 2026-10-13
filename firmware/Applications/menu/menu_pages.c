@@ -84,7 +84,7 @@ static const menu_tr_t menu_tr_table[] = {
     { "Y: %s%lu.%02lu g", "Y轴: %s%lu.%02lu g" },
     { "Z: %s%lu.%02lu g", "Z轴: %s%lu.%02lu g" },
     /* Status → Timer */
-    { "Temp: %d°C", "温度: %d°C" },
+    { "Temp:", "温度:" },  /* SC7A20/SD3078共用温度标签，数值格式分别处理 */
     { "Vbackup: %lu.%02luV", "备用电池: %lu.%02luV" },
     /* ---- Tools 页 ---- */
     { "Leveler", "水平仪" },
@@ -805,18 +805,18 @@ void menu_status_refresh(void)
                      (cg < 0) ? "-" : "",
                      (unsigned long)(mag / 100U), (unsigned long)(mag % 100U));
         }
-        /* Display °C using integer formatting; mini_snprintf has no %f.
-         * 格式与 Battery 页的 "Temp: %d°C" 保持一致（含冒号后空格与度符号）。 */
+        /* SC7A20保留0.1°C精度，温度前缀与SD3078共用翻译。 */
         {
             float t = SC7A20_ReadTemp();
             int32_t t10 = (int32_t)(t * 10.0f + (t >= 0.0f ? 0.5f : -0.5f));
             uint32_t v = (uint32_t)(t10 < 0 ? -t10 : t10);
             mini_snprintf(menu_status_accel_temp, sizeof(menu_status_accel_temp),
-                          "Temp: %s%lu.%01lu°C", t10 < 0 ? "-" : "",
+                          "%s %s%lu.%01lu°C", menu_tr("Temp:"), t10 < 0 ? "-" : "",
                           (unsigned long)(v / 10U), (unsigned long)(v % 10U));
         }
     } else {
-        mini_snprintf(menu_status_accel_temp, sizeof(menu_status_accel_temp), "Temp: --");
+        mini_snprintf(menu_status_accel_temp, sizeof(menu_status_accel_temp),
+                      "%s --", menu_tr("Temp:"));
         mini_snprintf(menu_status_accel_x, sizeof(menu_status_accel_x), "X: --");
         mini_snprintf(menu_status_accel_y, sizeof(menu_status_accel_y), "Y: --");
         mini_snprintf(menu_status_accel_z, sizeof(menu_status_accel_z), "Z: --");
@@ -832,8 +832,8 @@ void menu_status_refresh(void)
                  SD3078_ReadHour(), SD3078_ReadMin(), SD3078_ReadSec());
         mini_snprintf(menu_status_date, sizeof(menu_status_date), menu_tr("20%02d-%02d-%02d"),
                  SD3078_ReadYear(), SD3078_ReadMonth(), SD3078_ReadDay());
-        mini_snprintf(menu_status_temp, sizeof(menu_status_temp), menu_tr("Temp: %d°C"),
-                 (int)SD3078_ReadTemp());
+        mini_snprintf(menu_status_temp, sizeof(menu_status_temp), "%s %d°C",
+                      menu_tr("Temp:"), (int)SD3078_ReadTemp());
         mini_snprintf(menu_status_vbackup, sizeof(menu_status_vbackup), menu_tr("Vbackup: %lu.%02luV"),
                  (unsigned long)(vbackup_cv / 100U), (unsigned long)(vbackup_cv % 100U));
         mini_snprintf(menu_status_uid, sizeof(menu_status_uid), menu_tr("ID:0x%02X%02X%02X%02X%02X%02X%02X%02X    "),
@@ -842,7 +842,8 @@ void menu_status_refresh(void)
     } else {
         mini_snprintf(menu_status_time, sizeof(menu_status_time), "--:--:--");
         mini_snprintf(menu_status_date, sizeof(menu_status_date), "----");
-        mini_snprintf(menu_status_temp, sizeof(menu_status_temp), "Temp: --");
+        mini_snprintf(menu_status_temp, sizeof(menu_status_temp), "%s --",
+                      menu_tr("Temp:"));
         mini_snprintf(menu_status_vbackup, sizeof(menu_status_vbackup), "Vbackup: --");
         mini_snprintf(menu_status_uid, sizeof(menu_status_uid), "ID:0x----------------    ");
     }

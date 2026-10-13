@@ -415,11 +415,11 @@ static void game_create(void)
     hud = label("*** HI 00000  00000", 8, 0, 152);
     lv_obj_set_style_text_font(hud, &lv_font_unscii_8, 0);
     lv_obj_set_height(hud, 9); /* UNSCII-8 行高9，字宽8；17字符仍为136px */
-    /* 中文结束语按实机反馈右移8/36px；英文提示较长，单独避免截断。 */
-    over[0] = label(menu_tr("GAME OVER"), 88, 13, 72);
+    /* 结束文字两行整体上移3px；重开提示中文再右移4px、英文左移12px。 */
+    over[0] = label(menu_tr("GAME OVER"), 88, 10, 72);
     over[1] = (menu_lang_get() == MENU_LANG_ZH) ?
-              label(menu_tr("JUMP TO RESTART"), 66, 26, 94) :
-              label(menu_tr("JUMP TO RESTART"), 52, 26, 108);
+              label(menu_tr("JUMP TO RESTART"), 70, 23, 90) :
+              label(menu_tr("JUMP TO RESTART"), 40, 23, 120);
     for (i = 0; i < 2; ++i) {
         lv_obj_set_style_bg_color(over[i], lv_color_hex(0x101010), 0);
         lv_obj_set_style_bg_opa(over[i], LV_OPA_COVER, 0);
