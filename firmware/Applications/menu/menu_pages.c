@@ -118,6 +118,10 @@ static const menu_tr_t menu_tr_table[] = {
     { "Protocol#1", "协议组 #1" },
     { "Protocol#2", "协议组 #2" },
     { "PowerLimit", "功率限制" },
+    { "Auto Output Off", "自动关闭输出" },
+    { "Idle Timeout", "空载时间" },
+    { "Idle Threshold", "检测阈值" },
+    { "Disabled", "关闭" },
     /* PowerBank → Protocol#1（PD / PPS / UFCS） */
     { "PD out", "PD 输出" },
     { "PD in", "PD 输入" },
@@ -365,7 +369,7 @@ menu_page_t menu_page_factory_unlock, menu_page_factory_locked, menu_page_transp
 menu_page_t menu_page_sos, menu_page_screen_test_confirm, menu_page_accel_calibrate;
 menu_page_t menu_page_status;      /* ui_task 用 &menu_page_status 判断当前页 */
 menu_page_t menu_page_status_battery, menu_page_status_accel, menu_page_status_timer;
-menu_page_t menu_page_protocol1, menu_page_protocol2, menu_page_powerlimit;
+menu_page_t menu_page_protocol1, menu_page_protocol2, menu_page_powerlimit, menu_page_auto_output_off;
 menu_page_t menu_page_tools, menu_page_about;
 
 /* ==================== 显示页（Display，三级，归拢显示相关项） ==================== */
@@ -527,6 +531,23 @@ static const menu_item_t menu_items_powerlimit[] = {
 };
 MENU_PAGE_("PowerLimit", menu_page_powerlimit, menu_items_powerlimit);
 
+/* Output auto-off is independent of the 1h low-current-mode exit timeout.
+ * Settings only change RAM; the SW6306 task performs the actual ForceOff. */
+static void auto_off_apply(menu_item_t *it)
+{
+    (void)it;
+    SW6306_AlgoResetAutoOffTimer();
+}
+static const char * const s_auto_off_opts[] = {
+    "5s", "10s", "30s", "1 min", "5 min", "15 min", "30 min", "Disabled"
+};
+static const menu_item_t menu_items_auto_output_off[] = {
+    MENU_ITEM_BACK_("Return"),
+    MENU_ITEM_ENUM_("Idle Timeout", &SW6306_AutoOffTimeIndex, s_auto_off_opts, 8, auto_off_apply),
+    MENU_ITEM_VALUE_("Idle Threshold", &SW6306_AutoOffThreshold_mA, 0, 100, 4, "mA", auto_off_apply),
+};
+MENU_PAGE_("Auto Output Off", menu_page_auto_output_off, menu_items_auto_output_off);
+
 /* ==================== PowerBank 页（Protocol#1/#2 + PowerLimit） ====================
  * Battery / SW6306 两个子页已删除：
  *  - 容量学习由 sw6306_algo 固定常开，不再需要用户开关；
@@ -537,6 +558,7 @@ static const menu_item_t menu_items_powerbank[] = {
     MENU_ITEM_PAGE_("Protocol#1", &menu_page_protocol1),
     MENU_ITEM_PAGE_("Protocol#2", &menu_page_protocol2),
     MENU_ITEM_PAGE_("PowerLimit", &menu_page_powerlimit),
+    MENU_ITEM_PAGE_("Auto Output Off", &menu_page_auto_output_off),
 };
 MENU_PAGE_("PowerBank", menu_page_powerbank, menu_items_powerbank);
 

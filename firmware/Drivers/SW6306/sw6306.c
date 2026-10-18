@@ -5,7 +5,17 @@
  * SW6306_task 会对 SW6306 执行一次 ForceOff+Init（芯片复位后重置）。
  * 芯片独立复位（PowerLoad 读回失配）、ADCLoad 数据越界、MarkUninitialized
  * 手动失能同样会清 0，从而触发重新 Init。 */
+/* 同一SW6306实例的寄存器组连续I²C失败次数。 */
 static struct SW6306_StatusTypedef SW6306_Status;//SW6306状态全局变量
+
+static uint8_t s_i2c_fail_groups;
+static void sw6306_i2c_failed(void)
+{
+    if (s_i2c_fail_groups < SW6306_I2C_FAILURE_LIMIT) ++s_i2c_fail_groups;
+    if (s_i2c_fail_groups >= SW6306_I2C_FAILURE_LIMIT)
+        SW6306_Status.initialized = 0U;
+}
+static void sw6306_i2c_succeeded(void) { s_i2c_fail_groups = 0U; }
 
 static uint8_t s_pomax_target = SW6306_OUTPUT_POWER_MAX;   // 运行时最大输出功率目标（W），Init 写入、可由 SetMaxOutputPower 修改
 
@@ -265,10 +275,11 @@ SW6306_RET SW6306_PortStatusLoad(SW6306_NOARG)//更新端口状态镜像寄存�
        || SW6306_I2C_Receive(SW6306_I2C_ADDR, SW6306_STRG_TYPEA_QCIN, &t[3], 1, (uint8_t*)&SW6306_Status.flag) != I2C_OK
        || SW6306_I2C_Receive(SW6306_I2C_ADDR, SW6306_STRG_PORT_STA, &t[4], 1, (uint8_t*)&SW6306_Status.flag) != I2C_OK)
     {
-        SW6306_MARK_OFFLINE_ON_I2C_FAIL();   /* I2C 失败（已整笔重试过）：当前由开关临时屏蔽 */
+        sw6306_i2c_failed();   /* 已重试仍失败，累计整组故障 */
         SW6306_MUTEX_GIVE;
         SW6306_FUNC_END;
     }
+    sw6306_i2c_succeeded();
     SW6306_Status.noload     = t[0];//0x13
     SW6306_Status.sys_stat   = t[1];//0x18
     SW6306_Status.typec_stat = t[2];//0x19
@@ -402,10 +413,11 @@ SW6306_RET SW6306_StatusLoad(SW6306_NOARG)//将SW6306的各种状态读取到镜
        || SW6306_I2C_Receive(SW6306_I2C_ADDR, SW6306_STRG_FAULT2, &t[6], 1, (uint8_t*)&SW6306_Status.flag) != I2C_OK
        || SW6306_I2C_Receive(SW6306_I2C_ADDR, SW6306_STRG_FAULT3, &t[7], 1, (uint8_t*)&SW6306_Status.flag) != I2C_OK)
     {
-        SW6306_MARK_OFFLINE_ON_I2C_FAIL();   /* I2C 失败（已整笔重试过）：当前由开关临时屏蔽 */
+        sw6306_i2c_failed();   /* 已重试仍失败，累计整组故障 */
         SW6306_MUTEX_GIVE;
         SW6306_FUNC_END;
     }
+    sw6306_i2c_succeeded();
     SW6306_Status.mode      = t[0];//0x12
     SW6306_Status.display   = t[1];//0x14
     SW6306_Status.fault0    = t[2];//0x15
@@ -536,11 +548,12 @@ SW6306_RET SW6306_CapacityLoad(SW6306_NOARG)//更新容量与库仑计镜像寄�
        || SW6306_I2C_Receive(SW6306_I2C_ADDR, SW6306_CTRG_GAUGE_MCAPL, &t[2], 1, (uint8_t*)&SW6306_Status.flag) != I2C_OK
        || SW6306_I2C_Receive(SW6306_I2C_ADDR, SW6306_CTRG_GAUGE_MCAPH, &t[3], 1, (uint8_t*)&SW6306_Status.flag) != I2C_OK
        || SW6306_I2C_Receive(SW6306_I2C_ADDR, SW6306_CTRG_CURR_CAPL, &t[4], 3, (uint8_t*)&SW6306_Status.flag) != I2C_OK) {
-        SW6306_MARK_OFFLINE_ON_I2C_FAIL();
+        sw6306_i2c_failed();
         ok = 0U;
     }
 
     if (ok != 0U) {
+        sw6306_i2c_succeeded();
         SW6306_Status.capacity   = t[0];
         SW6306_Status.learn_stat = t[1];
         SW6306_Status.maxcap     = (uint16_t)(((uint16_t)(t[3] & 0x0FU) << 8) | t[2]);
@@ -1280,13 +1293,13 @@ SW6306_RET SW6306_Init(SW6306_NOARG)
     SW6306_SPAWN_ARGS(SW6306_ByteModify, SW6306_CTRG_P_DPDM5, SW6306_P_DPDM5_MSK, SW6306_P_DPDM5_VOOC|SW6306_P_DPDM5_SDP2A);
     //数码管驱动电流5mA,轻载5s后关闭输出
     SW6306_SPAWN_ARGS(SW6306_ByteModify, SW6306_CTRG_DISPLAY, SW6306_CTRG_DISPLAY_MSK, SW6306_CTRG_DISPLAY_2_5M);
-    //Rdc计算 + 容量学习默认开启；只置LEARNEN，不在Init清LEARN_END。
+    // Rdc计算 + 容量学习默认开启；只置LEARNEN，不在Init清LEARN_END。
     SW6306_SPAWN_ARGS(SW6306_ByteModify, SW6306_CTRG_GAUGE0, SW6306_GAUGE0_MSK,
                       SW6306_GAUGE0_RDCEN | SW6306_GAUGE0_LEARNEN);
-    //短按键功能由寄存器决定
-    SW6306_SPAWN_ARGS(SW6306_ByteModify, SW6306_CTRG_KEY0, SW6306_KEY0_MSK, SW6306_KEY0_REGSET);
-    //短按键打开灯显与已经接入的输出口,长按关闭下游口,双击打开WLED
-    SW6306_SPAWN_ARGS(SW6306_ByteModify, SW6306_CTRG_KEY1, SW6306_KEY1_MSK, SW6306_KEY1_DISPLAY|SW6306_KEY1_LPOFF|SW6306_KEY1_DCWLED);
+    // 短按键行为由寄存器决定，且可激活已经检测到Rd的端口
+    SW6306_SPAWN_ARGS(SW6306_ByteModify, SW6306_CTRG_KEY0, SW6306_KEY0_MSK, SW6306_KEY0_RDPORT | SW6306_KEY0_REGSET);
+    // 短按激活A1及Rd端口，长按关闭下游，双击关闭下游口（非WLED）
+    SW6306_SPAWN_ARGS(SW6306_ByteModify, SW6306_CTRG_KEY1, SW6306_KEY1_MSK, SW6306_KEY1_A1 | SW6306_KEY1_LPOFF | SW6306_KEY1_DCFF);
     
     //PD设置
     SW6306_SPAWN_NOARG(SW6306_PDSet);
@@ -1301,6 +1314,7 @@ SW6306_RET SW6306_Init(SW6306_NOARG)
     //初始化开头的短按键发生在KEY0/KEY1配置之前，可能按旧按键行为处理；
     //在KEY配置与清标志完成后再次触发，确保输出按新配置打开。
     SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_CLICK, SW6306_CLICK);
+    s_i2c_fail_groups = 0U;
     SW6306_Status.initialized = 1;
     SW6306_MUTEX_GIVE;
     SW6306_FUNC_END;

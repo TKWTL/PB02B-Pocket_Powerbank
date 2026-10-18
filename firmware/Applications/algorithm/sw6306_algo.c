@@ -55,6 +55,19 @@ static uint8_t s_slow_stop_count;
 
 /* RAM-only parameters; not written to NVM. */
 uint16_t SW6306_LowCurrentThreshold_mA = 80U;
+/* 5s,10s,30s,1min(default),5min,15min,30min,Disabled. */
+int32_t SW6306_AutoOffTimeIndex = 3;
+int32_t SW6306_AutoOffThreshold_mA = 12;
+static const uint16_t s_auto_off_seconds[7] = {5U,10U,30U,60U,300U,900U,1800U};
+static uint32_t s_auto_off_start;
+static uint8_t s_auto_off_running, s_auto_off_fired;
+
+void SW6306_AlgoResetAutoOffTimer(void)
+{
+    s_auto_off_running = 0U;
+    s_auto_off_fired = 0U;
+}
+
 
 /* 小电流模式的空闲超时：超过这么久没有高负载，就自动退出该模式。
  * 用宏（编译期常量）而不是 RAM 变量——退出判据（本文件的 100ms 服务）
@@ -238,6 +251,7 @@ void SW6306_AlgoInit(void)
     s_special_mode = SW6306_SPECIAL_NONE;
     s_special_toggle_req = 0U;
     s_slow_stop_count = 0U;
+    SW6306_AlgoResetAutoOffTimer();
     s_last_high_load_tick = xTaskGetTickCount();
 
     /* 算法层配置是唯一真实配置源；容量学习固定常开。
@@ -336,6 +350,31 @@ void SW6306_AlgoUpdate(void)
 /*************************** 小电流与慢充策略开始 *******************************/
 /* UI requests stay in RAM; this runs in SW6306_task. Low current ends after
  * 1h without IBUS>80mA. Slow charge halves current configured input power. */
+/* Only the SW6306 task invokes this service; elapsed time uses FreeRTOS ticks.
+ * Low-current (deliberately retained output), charging and WLED fake A1 are exempt. */
+static void sw6306_auto_off_tick(uint32_t now)
+{
+    int32_t idx = SW6306_AutoOffTimeIndex;
+    if (idx < 0 || idx >= 7 ||
+        s_special_mode == SW6306_SPECIAL_LOW_CURRENT ||
+        SW6306_IsCharging() || WLED_AlgoIsOn() || WLED_AlgoOwnsFakeA1() ||
+        (!SW6306_IsPortA1ON() && !SW6306_IsPortC1ON()) ||
+        SW6306_ReadIBUS() > (uint16_t)SW6306_AutoOffThreshold_mA) {
+        SW6306_AlgoResetAutoOffTimer();
+        return;
+    }
+    if (s_auto_off_fired) return;  /* Avoid repeated ForceOff while port mirror is stale. */
+    if (!s_auto_off_running) {
+        s_auto_off_start = now;
+        s_auto_off_running = 1U;
+    } else if ((uint32_t)(now - s_auto_off_start) >=
+               pdMS_TO_TICKS((uint32_t)s_auto_off_seconds[idx] * 1000U)) {
+        s_auto_off_fired = 1U;
+        s_auto_off_running = 0U;
+        sw6306_algo_set_command(SW6306_CMD_FORCE_OFF);
+    }
+}
+
 void SW6306_AlgoService100ms(void)
 {
     uint8_t toggle;
@@ -372,6 +411,7 @@ void SW6306_AlgoService100ms(void)
         s_last_high_load_tick = now;
         sw6306_algo_set_command(SW6306_CMD_POWER | SW6306_CMD_LOW_CURRENT);
     }
+    sw6306_auto_off_tick(now);
 }
 
 sw6306_special_mode_t SW6306_AlgoGetSpecialMode(void)
@@ -492,6 +532,7 @@ void SW6306_AlgoProcessCommands(void)
 
     /* 同批次点击/强制关口，后者优先，确保长按终态是关闭。
      * 关闭时退出小电流/慢充并恢复其寄存器状态，允许自动休眠。 */
+        SW6306_AlgoResetAutoOffTimer();
     if (cmd & SW6306_CMD_FORCE_OFF) {
         if (s_special_mode != SW6306_SPECIAL_NONE) {
             s_special_mode = SW6306_SPECIAL_NONE;
@@ -512,6 +553,7 @@ void SW6306_AlgoOnDriverReinitialized(void)
     s_learn_state = SW6306_LEARN_ST_UNKNOWN;
     s_load_phase = 0U;
     s_capacity_cycle = 1U;
+    SW6306_AlgoResetAutoOffTimer();
     sw6306_algo_set_command(SW6306_CMD_PROTOCOL |
                             SW6306_CMD_POWER |
                             SW6306_CMD_LEARN_ENABLE |

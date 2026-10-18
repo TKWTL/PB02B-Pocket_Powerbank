@@ -16,26 +16,10 @@ extern C {
 //  - 已定义：协作式 API（返回类型为 char，并额外带 struct pt *pt 参数）。
 //#define SW6306_USE_PROTOTHREAD
 
-/* ===== 器件离线判定总开关（2026-09 临时屏蔽）=====
- * 背景：I²C 读失败（含 BUSERR）会置 online/initialized=0，而 SW6306_task 看到
- * initialized==0 就会 ForceOff+Init。当前 PCB 布线存在较强干扰，开灯时 I²C 错误
- * 成片出现，导致 SW6306 被反复重初始化、WLED 亮度被一并打回默认。
- * 置 1：彻底不因 I²C 失败把器件判离线（改为在 菜单→Settings→PowerBank→SW6306 里手动重初始化）。
- * 置 0：恢复原行为（I²C 失败即置离线、自动重新初始化）。
- * 注意：本开关只管"I²C 失败"这一条路径；芯片独立复位（配置读回失配）与 ADC 数据越界
- * 仍会照常触发重初始化，因为那两种是真实故障。 */
-#ifndef SW6306_I2C_FAIL_MARK_OFFLINE
-#define SW6306_I2C_FAIL_MARK_OFFLINE    1           //1=屏蔽"I²C 失败→置离线"（当前 PCB 布线整改前的临时状态）；0=恢复自动重新初始化
-#endif
-
-/* I²C 读失败时的统一动作：置离线（下一轮自动重新初始化）。
- * 用宏而不是在每处写 #if，避免条件写反导致开关失效。
- * 注意：真正因 I²C 失败"离线"的语义是 initialized=0（online 字段本驱动未使用），
- * 是否同时清 online 由各驱动自己的宏决定。 */
-#if SW6306_I2C_FAIL_MARK_OFFLINE
-#define SW6306_MARK_OFFLINE_ON_I2C_FAIL()   do {} while(0)
-#else
-#define SW6306_MARK_OFFLINE_ON_I2C_FAIL()   do { SW6306_Status.initialized = 0; } while(0)
+/* 连续I²C失败保护：整组寄存器读取失败5次才重初始化；
+ * 成功一次整组读取即清零。ADC单通道失败保留旧镜像。 */
+#ifndef SW6306_I2C_FAILURE_LIMIT
+#define SW6306_I2C_FAILURE_LIMIT 5U
 #endif
 
 /*包含自己的I2C驱动库*/

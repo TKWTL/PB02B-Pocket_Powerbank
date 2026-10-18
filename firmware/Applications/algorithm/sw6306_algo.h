@@ -48,6 +48,10 @@ extern sw6306_algo_config_t SW6306_AlgoConfig;
  * 空闲超时改为编译期宏，定义在 sw6306_algo.c 内（退出判据与剩余时间显示
  * 必须始终一致，故不做成可改的 RAM 变量）。 */
 extern uint16_t SW6306_LowCurrentThreshold_mA;
+/* Auto output-off menu settings (runtime-only; timeout index 7 disables). */
+extern int32_t SW6306_AutoOffTimeIndex;
+extern int32_t SW6306_AutoOffThreshold_mA;
+void SW6306_AlgoResetAutoOffTimer(void);
 typedef enum {
     SW6306_SPECIAL_NONE = 0,
     SW6306_SPECIAL_LOW_CURRENT,
