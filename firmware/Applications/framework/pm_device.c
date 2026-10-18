@@ -71,6 +71,20 @@ void pm_device_resume_all(void)
     }
 }
 
+void pm_device_enter_deepsleep(void)
+{
+    uint8_t i;
+    for (i = 0; i < s_count; i++)
+        if (s_nodes[i]->on_deepsleep) s_nodes[i]->on_deepsleep(s_nodes[i]->ctx);
+}
+
+void pm_device_enter_standby(void)
+{
+    uint8_t i;
+    for (i = 0; i < s_count; i++)
+        if (s_nodes[i]->on_standby) s_nodes[i]->on_standby(s_nodes[i]->ctx);
+}
+
 __attribute__((weak)) void pm_device_register_linker_set(void)
 {
 }

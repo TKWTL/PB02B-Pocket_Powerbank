@@ -16,12 +16,18 @@ typedef struct {
     pm_hook_t on_resume;
     void *ctx;
     uint8_t order;
+    /* Called after peripheral suspend + NVM/RTC preparation, before device resume.
+     * A DeepSleep hook returns only after hardware clocks are fully restored. */
+    pm_hook_t on_deepsleep;
+    pm_hook_t on_standby;
 } pm_device_node_t;
 
 int pm_device_register(const pm_device_node_t *node);
 void pm_device_prepare_all(void);
 void pm_device_suspend_all(void);
 void pm_device_resume_all(void);
+void pm_device_enter_deepsleep(void);
+void pm_device_enter_standby(void);
 void pm_device_register_builtin(void);
 void pm_device_register_linker_set(void);
 void pm_device_register_all(void);
