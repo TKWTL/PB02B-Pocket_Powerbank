@@ -10,7 +10,9 @@
 #include "functions.h"   /* 主界面创建/显示 + 一次性动作函数 */
 
 /* 临时UI卡屏诊断：由SW6306任务读取，不涉及LVGL跨线程调用。
- * phase: 0=初始化, 1=PM阻塞, 2=按键/绘图, 3=LVGL handler, 4=周期等待。 */
+ * phase: 10=lv_init,20=display,30=indev,40=menu init,50=menu UI create,
+ * 60=callback,70=main app create,80=backlight,90=timers;
+ * 1=PM阻塞,2=按键/绘图,3=LVGL handler,4=周期等待。 */
 volatile uint32_t g_ui_heartbeat;
 volatile uint8_t g_ui_phase;
 static lv_obj_t *s_menu_scr;   /* 菜单屏（主界面/应用屏由菜单应用模型统一管理） */
@@ -302,24 +304,16 @@ static void ui_scan_tick_cb(lv_timer_t *t)
 void ui_task_func(void *pvParameters)
 {
     (void)pvParameters;
-    g_ui_phase = 0U;
-    lv_init();
-    lv_port_disp_init();
-    lv_port_indev_init();
-
-    /* ---------- 菜单 ---------- */
-    menu_init();
-    s_menu_scr = menu_ui_create();
-    menu_set_redraw_cb(menu_redraw_handler);
-
-    /* 主界面作为应用进入（菜单应用模型统一管理：create + 注册 run + 激活） */
-    menu_app_enter(&menu_app_main);
-
-    /* 开机应用默认背光亮度（1~16，默认 8） */
-    menu_backlight_apply();
-
-    lv_timer_create(status_timer_cb, 500, NULL);
-    /* 按键扫描节拍定时器：10ms，保证 ui_loop 每 10ms 扫描按键（见 ui_scan_tick_cb） */
+    /* UID2: 初始化每一步留一字节阶段码，定位启动死循环/外设等待。 */
+    g_ui_phase = 10U; lv_init();
+    g_ui_phase = 20U; lv_port_disp_init();
+    g_ui_phase = 30U; lv_port_indev_init();
+    g_ui_phase = 40U; menu_init();
+    g_ui_phase = 50U; s_menu_scr = menu_ui_create();
+    g_ui_phase = 60U; menu_set_redraw_cb(menu_redraw_handler);
+    g_ui_phase = 70U; menu_app_enter(&menu_app_main);
+    g_ui_phase = 80U; menu_backlight_apply();
+    g_ui_phase = 90U; lv_timer_create(status_timer_cb, 500, NULL);
     lv_timer_create(ui_scan_tick_cb, 10, NULL);
 
     while (1) {

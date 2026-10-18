@@ -4,6 +4,7 @@
 /* UI心跳只增计数、写phase；此处仅在已有2.5s串口状态周期读取。 */
 extern volatile uint32_t g_ui_heartbeat;
 extern volatile uint8_t g_ui_phase;
+extern volatile uint8_t g_gspi_phase;
 
 static void sw6306_update_sleep_block(void)
 {
@@ -95,11 +96,11 @@ void SW6306_task_func(void *pvParameters)
                          (unsigned long)(mw / 1000U), (unsigned long)(mw % 1000U));
         } else if (dbg_idx == 2U) {
             /* 借助仍运行的SW6306任务定位卡屏：状态/栈/PM就绪情况。 */
-            USART_Printf("[UID1] h:%lu p:%u state:%u hw:%lu\n",
+            USART_Printf("[UID2] h:%lu p:%u spi:%u st:%u hw:%lu\n",
                          (unsigned long)g_ui_heartbeat, (unsigned)g_ui_phase,
-                         (unsigned)eTaskGetState(ui_task_handle),
+                         (unsigned)g_gspi_phase, (unsigned)eTaskGetState(ui_task_handle),
                          (unsigned long)uxTaskGetStackHighWaterMark(ui_task_handle));
-            USART_Printf("[UID1] b:%u pm:%u rd:%u mask:%02X\n",
+            USART_Printf("[UID2] b:%u pm:%u rd:%u mask:%02X\n",
                          (unsigned)eTaskGetState(button_task_handle),
                          (unsigned)pm_api_ui_should_block(),
                          (unsigned)pm_api_wake_data_ready(),
