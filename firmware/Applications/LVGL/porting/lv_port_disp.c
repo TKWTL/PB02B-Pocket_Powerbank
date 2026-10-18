@@ -55,7 +55,8 @@ static void disp_flush(lv_display_t * disp, const lv_area_t * area, uint8_t * px
  **********************/
 /* LVGL 渲染缓冲：160×16×2 = 5120B（RGB565，可容纳 160×16 行；≤6K，缓解移动边界残留）。
  * 尾部余量精确等于 GC9D01_RAMWR_TAIL_BYTES（4B），刚好容纳多送的 2 像素，不多留。 */
-static uint8_t fb[MY_DISP_HOR_RES * 16 * 2 + GC9D01_RAMWR_TAIL_BYTES];
+static uint8_t fb[MY_DISP_HOR_RES * 16 * 2 + GC9D01_RAMWR_TAIL_BYTES]
+    __attribute__((aligned(LV_DRAW_BUF_ALIGN)));
 
 /**********************
  *      MACROS
@@ -85,7 +86,6 @@ void lv_port_disp_init(void)
     
     /* Full-screen single buffer（fb 在文件作用域定义；此处只把 5120B 交给 LVGL，
        尾部 4B 余量不纳入缓冲区尺寸，留给 RAMWR 多送的 2 像素） */
-    LV_ATTRIBUTE_MEM_ALIGN
     lv_display_set_buffers(disp,
                            fb,                // buf1: full screen
                            NULL,              // buf2: none (single buffer)
