@@ -23,6 +23,11 @@ uint16_t GC9D01_Y_Start = GC9D01_YSTART;
 uint16_t GC9D01_Width = 0;
 uint16_t GC9D01_Height = 0;
 
+/* UID3 temporary boot diagnostic: 0=not started; 1=reset/wait; 2=early
+ * register writes; 3=GIP programming; 4=gamma; 5=sleep-out wait;
+ * 6=final commands; 7=initialization completed. */
+volatile uint8_t g_gc9d01_init_stage;
+
 
 static void GC9D01_SendCmd(uint8_t Cmd);
 static void GC9D01_SendData(uint8_t Data );
@@ -46,12 +51,14 @@ static void GC9D01_DrawLine_Slow(int16_t x1, int16_t y1, int16_t x2, int16_t y2,
 // 显示屏初始化过程
 //==============================================================================
 void GC9D01_Init(void){	
+    g_gc9d01_init_stage = 1U;
 	GC9D01_Width = GC9D01_WIDTH;
 	GC9D01_Height = GC9D01_HEIGHT;
 
     GC9D01_HardReset(); 
 	
 	vTaskDelay(200);	
+    g_gc9d01_init_stage = 2U;
 	
 	//--- init ------------
 	GC9D01_SendCmd(0xFE);
@@ -193,6 +200,7 @@ void GC9D01_Init(void){
   GC9D01_SendData(0x22);
   GC9D01_SendData(0x50);
 
+  g_gc9d01_init_stage = 3U;
   GC9D01_SendCmd(0x6E);
   GC9D01_SendData(0x00);
   GC9D01_SendData(0x00);
@@ -328,6 +336,7 @@ void GC9D01_Init(void){
     GC9D01_SendData(0x1a);
 
 	// gamma F1~F3h
+    g_gc9d01_init_stage = 4U;
     GC9D01_SendCmd(0xf0);		// SET_GAMMA1 (F0h)
     GC9D01_SendData(0x51);
     GC9D01_SendData(0x13);
@@ -375,10 +384,13 @@ void GC9D01_Init(void){
 	
     GC9D01_SendCmd(0x11);	// Sleep Out Mode (11h) and delay(200)
 		
+    g_gc9d01_init_stage = 5U;
     vTaskDelay(100);
+    g_gc9d01_init_stage = 6U;
 		
     GC9D01_SendCmd(0x29);	// Display ON (29h) and delay(20)
     GC9D01_SendCmd(0x2C);	// Memory Write (2Ch) D=0
+    g_gc9d01_init_stage = 7U;
 	
 	//GC9D01_ClearFrameBuffer();
 }

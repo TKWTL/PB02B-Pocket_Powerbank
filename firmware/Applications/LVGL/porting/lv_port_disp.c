@@ -14,6 +14,8 @@
 #include <string.h>
 
 #include "applications.h"
+
+extern volatile uint8_t g_ui_phase;
 /*********************
  *      DEFINES
  *********************/
@@ -68,14 +70,18 @@ void lv_port_disp_init(void)
     /*-------------------------
      * Initialize your display
      * -----------------------*/
+    g_ui_phase = 21U; /* LCD controller reset and register initialization */
     disp_init();
-    
+    g_ui_phase = 22U; /* Create LVGL display object */
+
     /*------------------------------------
      * Create a display and set a flush_cb
      * -----------------------------------*/
     lv_display_t * disp = lv_display_create(MY_DISP_HOR_RES, MY_DISP_VER_RES);
+    g_ui_phase = 23U; /* Display object created */
     lv_display_set_flush_cb(disp, disp_flush);
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565_SWAPPED);
+    g_ui_phase = 24U; /* Configure draw buffer */
     
     /* Full-screen single buffer（fb 在文件作用域定义；此处只把 5120B 交给 LVGL，
        尾部 4B 余量不纳入缓冲区尺寸，留给 RAMWR 多送的 2 像素） */
@@ -85,6 +91,7 @@ void lv_port_disp_init(void)
                            NULL,              // buf2: none (single buffer)
                            MY_DISP_HOR_RES * 16 * 2,
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
+    g_ui_phase = 25U; /* Display port fully initialized */
 }
 
 /**********************
