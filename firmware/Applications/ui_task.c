@@ -9,6 +9,10 @@
 #include "menu_pages.h"
 #include "functions.h"   /* 主界面创建/显示 + 一次性动作函数 */
 
+/* 临时UI卡屏诊断：由SW6306任务读取，不涉及LVGL跨线程调用。
+ * phase: 0=初始化, 1=PM阻塞, 2=按键/绘图, 3=LVGL handler, 4=周期等待。 */
+volatile uint32_t g_ui_heartbeat;
+volatile uint8_t g_ui_phase;
 static lv_obj_t *s_menu_scr;   /* 菜单屏（主界面/应用屏由菜单应用模型统一管理） */
 static uint8_t s_orientation_lock;
 static uint8_t s_rotate_applied_valid;
@@ -298,6 +302,7 @@ static void ui_scan_tick_cb(lv_timer_t *t)
 void ui_task_func(void *pvParameters)
 {
     (void)pvParameters;
+    g_ui_phase = 0U;
     lv_init();
     lv_port_disp_init();
     lv_port_indev_init();
@@ -321,6 +326,7 @@ void ui_task_func(void *pvParameters)
         /* 低功耗阻塞：非 RUN 状态或唤醒数据未就绪时主动让出 CPU，等待恢复 */
         uint8_t woke = 0;
         while (pm_api_ui_should_block()) {
+            g_ui_phase = 1U;
             vTaskDelay(pdMS_TO_TICKS(100));
             woke = 1;
         }
@@ -337,16 +343,23 @@ void ui_task_func(void *pvParameters)
             }
 
             /* 唤醒恢复：数据已预取就绪，先绘出新图，再恢复背光。 */
+            g_ui_phase = 3U;
             lv_timer_handler();
+            g_ui_heartbeat++;
+            g_ui_phase = 4U;
             menu_backlight_apply();
             continue;
         }
 
-        /* 统一 UI 调度：扫描按键→动作→状态机路由（菜单/主界面应用自包含处理） */
+        /* 只用普通RAM心跳记录阶段，不在 UI 热路径做 USART 打印。 */
+        g_ui_phase = 2U;
         ui_loop();
         ui_auto_rotate();
 
+        g_ui_phase = 3U;
         uint32_t t = lv_timer_handler();
+        g_ui_heartbeat++;
+        g_ui_phase = 4U;
         if (t == LV_NO_TIMER_READY) {
             t = LV_DEF_REFR_PERIOD;
         }

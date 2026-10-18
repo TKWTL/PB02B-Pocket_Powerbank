@@ -94,6 +94,7 @@ static void boot_print_banner(void)
     USART_Printf("========================================\r\n");
     USART_Printf("  " PROJECT_NAME_STR " Firmware\r\n");
     USART_Printf("  FW  : v" FW_VERSION_STR " (" __DATE__ " " __TIME__ ")\r\n");
+    USART_Printf("  DIAG: UID1\r\n");
     USART_Printf("  HW  : " HW_VERSION_STR " | 2S1P 30Q\r\n");
     USART_Printf("  MCU : AT32F423KCU7 @ %luMHz\r\n", (unsigned long)(SystemCoreClock / 1000000UL));
     USART_Printf("========================================\r\n");
