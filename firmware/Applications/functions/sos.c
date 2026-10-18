@@ -14,7 +14,7 @@ static void sos_create(void)
     lv_obj_set_scrollbar_mode(s_sos_screen, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_style_bg_color(s_sos_screen, lv_color_hex(0x101010), 0);
     label = lv_label_create(s_sos_screen);
-    lv_label_set_text(label, "SOS ACTIVE\nAny key to stop");
+    lv_label_set_text(label, menu_tr("SOS ACTIVE\nAny key to stop"));
     lv_obj_set_style_text_color(label, lv_color_white(), 0);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(label, menu_font_main(), 0);

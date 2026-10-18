@@ -89,6 +89,7 @@ static const menu_tr_t menu_tr_table[] = {
     /* ---- Tools 页 ---- */
     { "Leveler", "水平仪" },
     { "SOS Blink", "SOS 闪灯" },
+    { "SOS ACTIVE\nAny key to stop", "SOS 闪灯中\n按键退出" },
     { "Screen Test", "屏幕测试" },
     { "Emergency Light", "紧急求救闪灯" },
     { "Max Bright Pulses", "将使用最高亮度脉冲" },

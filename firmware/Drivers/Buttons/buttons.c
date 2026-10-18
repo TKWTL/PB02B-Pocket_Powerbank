@@ -25,7 +25,7 @@ const KeyInfo_t KeyInfo_Array[KeyIndex_Max] = {
      * MultiClickTime：连击判定超时时间
      * ZeroIsPress低电平代表按下
      * GetIOFunc获取按键状态的uint8_t func(void)型函数名 */
-    {100, 20, 50, 0, KEY_NEXT_GetIO},
+    {180, 20, 50, 0, KEY_NEXT_GetIO},  /* PWR：长按1.8s关闭输出 */
     {100, 20, 50, 1, KEY_CONF_GetIO},
     {100, 20, 50, 1, KEY_PREV_GetIO},
 };

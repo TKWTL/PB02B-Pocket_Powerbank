@@ -10,9 +10,9 @@
 
 /* AT32F423 MCU为一个PM设备：进低功耗是独立的“执行阶段”而非普通
  * suspend回调，以确保外围设备先挂起、RTC起点先记录、唤醒时钟先恢复。
- * 额外低功耗LDO需在量产板验证唤醒时序后再开启。 */
+ * Extra Low Power默认开启；需实机验证唤醒，不允许DeepSleep Debug。 */
 #ifndef PM_AT32_EXTRA_LOW_POWER
-#define PM_AT32_EXTRA_LOW_POWER 0
+#define PM_AT32_EXTRA_LOW_POWER 1
 #endif
 
 static void pm_at32_deepsleep(void *ctx)

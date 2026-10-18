@@ -232,13 +232,22 @@ static app_action_t ui_scan_action(void)
         return APP_ACTION_NONE;
     }
 
-    /* 应用态：NEXT支持双击；菜单态只用单击进行导航。 */
+    /* 主屏PWR：Rising立即Click，第二击释放后切小电流/慢充，
+     * 长按1.8s的Holding边沿只关口一次。不能用DAS判断单击，
+     * 否则持续按住时每200ms又会发一次Click重新开口。 */
     if (KEY_GetDASClick(KeyIndex_MENU)) { KEY_ClearEdge(KeyIndex_MENU); return APP_ACTION_UP; }
     if (KEY_GetClickTimes(KeyIndex_NEXT, 2U)) {
         KEY_ClearEdge(KeyIndex_NEXT);
         return APP_ACTION_DOWN_DBL;
     }
-    if (KEY_GetDASClick(KeyIndex_NEXT)) { KEY_ClearEdge(KeyIndex_NEXT); return APP_ACTION_DOWN; }
+    if (menu_app_active() == &menu_app_main) {
+        KeyEdge_t edge = Key_EdgeDetect(KeyIndex_NEXT);
+        if (edge == KeyEdge_Holding) { KEY_ClearEdge(KeyIndex_NEXT); return APP_ACTION_DOWN_HOLD; }
+        if (edge == KeyEdge_Rising)  { KEY_ClearEdge(KeyIndex_NEXT); return APP_ACTION_DOWN; }
+    } else if (KEY_GetDASClick(KeyIndex_NEXT)) {
+        KEY_ClearEdge(KeyIndex_NEXT);
+        return APP_ACTION_DOWN;
+    }
     return key_event(KeyIndex_CONF, APP_ACTION_ENTER, APP_ACTION_ENTER_DBL, APP_ACTION_ENTER_HOLD);
 }
 

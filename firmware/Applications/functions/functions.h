@@ -28,8 +28,10 @@ extern "C" {
 
 /* 主界面按键处理（主界面应用 menu_app_main.run，由菜单应用模型统一管理）：
  *  - APP_ACTION_UP    （MENU 键）→ 打开菜单（主界面销毁释放内存）
- *  - APP_ACTION_ENTER （CONF 键）→ 开关 WLED（固定一半最大亮度）
- *  - APP_ACTION_DOWN_DBL（PWR双击）→ 小电流/慢充（仅发RAM请求）
+ *  - APP_ACTION_ENTER_DBL（CONF双击）→ WLED开关
+ *  - APP_ACTION_DOWN（PWR单击）→ SW6306 Click
+ *  - APP_ACTION_DOWN_DBL（PWR双击）→ 小电流/慢充
+ *  - APP_ACTION_DOWN_HOLD（PWR长按）→ 强制关闭输出
  * 约定：每个应用（全屏功能界面）的绘制与按键处理写在同一个 .c 文件中，
  * 注册为 menu_app_t 应用（menu.h），由 menu.c 统一管理生命周期。 */
 void main_screen_run(app_action_t action);

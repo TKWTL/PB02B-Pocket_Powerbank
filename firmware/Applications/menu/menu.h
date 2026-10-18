@@ -195,6 +195,7 @@ typedef enum {
     APP_ACTION_ENTER,       /* CONF：单击；菜单：确认 */
     APP_ACTION_ENTER_DBL,   /* CONF：双击；主界面：开关 WLED */
     APP_ACTION_DOWN_DBL,    /* NEXT 双击；主界面：小电流/慢充 */
+    APP_ACTION_DOWN_HOLD,   /* NEXT 长按1.8s；主界面：强制关闭输出 */
     APP_ACTION_ENTER_HOLD,  /* CONF：长按（持续）；主界面：调光 */
     APP_ACTION_ENTER_HOLD_END, /* CONF：长按结束（HOLD→NONE 边沿）；主界面：切换调光方向 */
 } app_action_t;

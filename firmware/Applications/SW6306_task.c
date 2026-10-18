@@ -3,7 +3,6 @@
 static void sw6306_update_sleep_block(void)
 {
     uint8_t port_on;
-    uint8_t curr_busy;
     uint8_t bus_active;
 
     /* A low-current idle load must not put the MCU/SW6306 to sleep. */
@@ -13,17 +12,12 @@ static void sw6306_update_sleep_block(void)
     /* 任意端口通路打开（本硬件真实口：C1/A1；A1 兼作 WLED 假插入口。
      * 假插入与真实负载由 UI 用 BUS 电流区分，见 main_screen.c a1_is_real_load） */
     port_on = (SW6306_IsPortC1ON() != 0 || SW6306_IsPortA1ON() != 0) ? 1 : 0;
-    /* 任意充/放电电流 */
-    curr_busy = (SW6306_ReadIBUS() > 50 || SW6306_ReadIBAT() > 50) ? 1 : 0;
     /* 总线有压且有电流 = 充电/放电活跃，不依赖端口 ON 位（防端口位漏检误入睡） */
     bus_active = (SW6306_ReadVBUS() > 4000 && SW6306_ReadIBUS() > 50) ? 1 : 0;
 
-    /* 充满后不再阻止休眠：充满→充电电流归零（IBUS<50）→ 走 30s 空闲入睡，
-     * 避免 MCU 空转消耗电池电量（该电流不经 SW6306 库仑计，会虚增 SOC）。
-     * 入睡后 SW6306 进入 LPSet；拔下充电器（VBUS 掉电）属场景变化，
-     * SCENE 事件经 IRQ(EXINT8) 拉低 10ms 唤醒 MCU 一次用于查看电量，
-     * 空载 30s 后再次入睡。 */
-    if ((port_on != 0 && curr_busy != 0) || bus_active != 0) {
+    /* 端口一旦打开就持续保持RUN，避免无负载30s休眠时LPSet改变通路。
+     * 空载由用户PWR长按主动断开；没有输出口时仍允许30s后睡眠。 */
+    if (port_on != 0 || bus_active != 0) {
         pm_api_set_sleep_block(PM_BLOCK_SW6306_LOAD, 1);
         pm_api_refresh_idle();
     } else {
