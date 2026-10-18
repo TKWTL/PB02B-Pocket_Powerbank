@@ -1,14 +1,11 @@
 #include "bsp_spi.h"
 
-/* UID2临时诊断SPI阶段：0=空闲 1=等待mutex 2=等待DMA 3=SPI Busy轮询。 */
-volatile uint8_t g_gspi_phase;
 TaskHandle_t gspi_wait_task = NULL;   // 当前等待SPI完成的任务句柄
 
 //屏幕发送函数
 void GSPI_Transmit(uint8_t* p_buf, size_t len){
     if (p_buf == NULL || len == 0) return;
     
-    g_gspi_phase = 1U;
     xSemaphoreTake(mutex_gspi_handle, portMAX_DELAY);
 
     gspi_wait_task = xTaskGetCurrentTaskHandle();
@@ -21,13 +18,10 @@ void GSPI_Transmit(uint8_t* p_buf, size_t len){
     dma_data_number_set(GSPI_DMACH, len);/* 5) 设置传输长度 */
     dma_channel_enable(GSPI_DMACH, TRUE);/* 6) 使能 DMA 通道，等待 SPI3_TX DMA 请求触发搬运 */
 
-    g_gspi_phase = 2U;
     (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);   /* DMA 搬完 */
-    g_gspi_phase = 3U;
     while (spi_i2s_flag_get(GSPI, SPI_I2S_BF_FLAG)) {}   /* 等 SPI 最后一位真正从 MOSI 发出 */
     gspi_wait_task = NULL;
 
-    g_gspi_phase = 0U;
     xSemaphoreGive(mutex_gspi_handle);
 }
 

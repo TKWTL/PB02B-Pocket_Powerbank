@@ -44,7 +44,7 @@ char menu_status_bat[24] = "--.-V --.-A";
  * 表按【菜单顺序】排列，便于核对新增文案是否有对应条目：
  *   根图标页 → About → Status(Battery/Accelerator/Timer) → Tools → Dino Game
  *   → Settings(PowerBank/Display/Sleep & Wake/System)
- *   → PowerBank(Protocol#1/Protocol#2/PowerLimit)
+ *   → PowerBank(PowerLimit/Auto Output Off/Protocol#1/Protocol#2)
  *   → Display → Sleep & Wake → System(Clock/Language/Factory Option/Reset) → toggle/ENUM 取值
  * 表中仅保留需要中文替换的文案；中英文相同的字符串不入表，
  * 否则中文态会显示英文（menu_tr 的回退行为）。
@@ -115,13 +115,16 @@ static const menu_tr_t menu_tr_table[] = {
     { "Sleep & Wake", "休眠与唤醒" },
     { "System", "系统" },
     /* Settings → PowerBank */
+    { "PowerLimit", "功率设置" },
+    { "Auto Output Off", "自动关闭输出" },
     { "Protocol#1", "协议组 #1" },
     { "Protocol#2", "协议组 #2" },
-    { "PowerLimit", "功率限制" },
-    { "Auto Output Off", "自动关闭输出" },
     { "Idle Timeout", "空载时间" },
     { "Idle Threshold", "检测阈值" },
     { "Disabled", "关闭" },
+    /* PowerBank → PowerLimit */
+    { "Output", "输出功率" },
+    { "Input", "输入功率" },
     /* PowerBank → Protocol#1（PD / PPS / UFCS） */
     { "PD out", "PD 输出" },
     { "PD in", "PD 输入" },
@@ -140,9 +143,6 @@ static const menu_tr_t menu_tr_table[] = {
     { "PD to UFCS", "PD让位UFCS" },
     { "VOOC out", "VOOC 输出" },
     { "VOOC in", "VOOC 输入" },
-    /* PowerBank → PowerLimit */
-    { "Output", "输出功率" },
-    { "Input", "输入功率" },
     /* ---- Display 页 ---- */
     { "Backlight", "背光" },
     { "Theme", "主题" },
@@ -548,17 +548,17 @@ static const menu_item_t menu_items_auto_output_off[] = {
 };
 MENU_PAGE_("Auto Output Off", menu_page_auto_output_off, menu_items_auto_output_off);
 
-/* ==================== PowerBank 页（Protocol#1/#2 + PowerLimit） ====================
+/* ==================== PowerBank 页（功率设置 → 自动关闭 → 协议组1/2） ====================
  * Battery / SW6306 两个子页已删除：
  *  - 容量学习由 sw6306_algo 固定常开，不再需要用户开关；
  *  - SW6306 重初始化也不在菜单里手动做。
  * Record SOH 移到 System → Factory Option。 */
 static const menu_item_t menu_items_powerbank[] = {
     MENU_ITEM_BACK_("Return"),
-    MENU_ITEM_PAGE_("Protocol#1", &menu_page_protocol1),
-    MENU_ITEM_PAGE_("Protocol#2", &menu_page_protocol2),
     MENU_ITEM_PAGE_("PowerLimit", &menu_page_powerlimit),
     MENU_ITEM_PAGE_("Auto Output Off", &menu_page_auto_output_off),
+    MENU_ITEM_PAGE_("Protocol#1", &menu_page_protocol1),
+    MENU_ITEM_PAGE_("Protocol#2", &menu_page_protocol2),
 };
 MENU_PAGE_("PowerBank", menu_page_powerbank, menu_items_powerbank);
 

@@ -15,7 +15,6 @@
 
 #include "applications.h"
 
-extern volatile uint8_t g_ui_phase;
 /*********************
  *      DEFINES
  *********************/
@@ -53,8 +52,12 @@ static void disp_flush(lv_display_t * disp, const lv_area_t * area, uint8_t * px
 /**********************
  *  STATIC VARIABLES
  **********************/
-/* LVGL 渲染缓冲：160×16×2 = 5120B（RGB565，可容纳 160×16 行；≤6K，缓解移动边界残留）。
- * 尾部余量精确等于 GC9D01_RAMWR_TAIL_BYTES（4B），刚好容纳多送的 2 像素，不多留。 */
+/* LVGL 渲染缓冲：160×16×2 = 5120B，尾部另预留 4B RAMWR 补偿像素。
+ * 2026-10 UI 启动卡死：原 uint8_t fb[] 未显式保证 4B 对齐；LVGL 的
+ * lv_display_set_buffers() 对 buf1 对齐检查失败时进入默认 while(1)
+ * 断言处理器，UI 卡在初始化阶段（UID3 h=0/p=24），其他任务仍运行。
+ * 将 aligned 属性加到 fb 声明后，实机 UI 心跳与刷新恢复正常。
+ * 注意：属性必须作用于数组声明，放在函数调用前不生效。 */
 static uint8_t fb[MY_DISP_HOR_RES * 16 * 2 + GC9D01_RAMWR_TAIL_BYTES]
     __attribute__((aligned(LV_DRAW_BUF_ALIGN)));
 
@@ -71,18 +74,14 @@ void lv_port_disp_init(void)
     /*-------------------------
      * Initialize your display
      * -----------------------*/
-    g_ui_phase = 21U; /* LCD controller reset and register initialization */
     disp_init();
-    g_ui_phase = 22U; /* Create LVGL display object */
 
     /*------------------------------------
      * Create a display and set a flush_cb
      * -----------------------------------*/
     lv_display_t * disp = lv_display_create(MY_DISP_HOR_RES, MY_DISP_VER_RES);
-    g_ui_phase = 23U; /* Display object created */
     lv_display_set_flush_cb(disp, disp_flush);
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565_SWAPPED);
-    g_ui_phase = 24U; /* Configure draw buffer */
     
     /* Full-screen single buffer（fb 在文件作用域定义；此处只把 5120B 交给 LVGL，
        尾部 4B 余量不纳入缓冲区尺寸，留给 RAMWR 多送的 2 像素） */
@@ -91,7 +90,6 @@ void lv_port_disp_init(void)
                            NULL,              // buf2: none (single buffer)
                            MY_DISP_HOR_RES * 16 * 2,
                            LV_DISPLAY_RENDER_MODE_PARTIAL);
-    g_ui_phase = 25U; /* Display port fully initialized */
 }
 
 /**********************

@@ -9,12 +9,6 @@
 #include "menu_pages.h"
 #include "functions.h"   /* 主界面创建/显示 + 一次性动作函数 */
 
-/* 临时UI卡屏诊断：由SW6306任务读取，不涉及LVGL跨线程调用。
- * phase: 10=lv_init,20=display,30=indev,40=menu init,50=menu UI create,
- * 60=callback,70=main app create,80=backlight,90=timers;
- * 1=PM阻塞,2=按键/绘图,3=LVGL handler,4=周期等待。 */
-volatile uint32_t g_ui_heartbeat;
-volatile uint8_t g_ui_phase;
 static lv_obj_t *s_menu_scr;   /* 菜单屏（主界面/应用屏由菜单应用模型统一管理） */
 static uint8_t s_orientation_lock;
 static uint8_t s_rotate_applied_valid;
@@ -304,23 +298,21 @@ static void ui_scan_tick_cb(lv_timer_t *t)
 void ui_task_func(void *pvParameters)
 {
     (void)pvParameters;
-    /* UID2: 初始化每一步留一字节阶段码，定位启动死循环/外设等待。 */
-    g_ui_phase = 10U; lv_init();
-    g_ui_phase = 20U; lv_port_disp_init();
-    g_ui_phase = 30U; lv_port_indev_init();
-    g_ui_phase = 40U; menu_init();
-    g_ui_phase = 50U; s_menu_scr = menu_ui_create();
-    g_ui_phase = 60U; menu_set_redraw_cb(menu_redraw_handler);
-    g_ui_phase = 70U; menu_app_enter(&menu_app_main);
-    g_ui_phase = 80U; menu_backlight_apply();
-    g_ui_phase = 90U; lv_timer_create(status_timer_cb, 500, NULL);
+    lv_init();
+    lv_port_disp_init();
+    lv_port_indev_init();
+    menu_init();
+    s_menu_scr = menu_ui_create();
+    menu_set_redraw_cb(menu_redraw_handler);
+    menu_app_enter(&menu_app_main);
+    menu_backlight_apply();
+    lv_timer_create(status_timer_cb, 500, NULL);
     lv_timer_create(ui_scan_tick_cb, 10, NULL);
 
     while (1) {
         /* 低功耗阻塞：非 RUN 状态或唤醒数据未就绪时主动让出 CPU，等待恢复 */
         uint8_t woke = 0;
         while (pm_api_ui_should_block()) {
-            g_ui_phase = 1U;
             vTaskDelay(pdMS_TO_TICKS(100));
             woke = 1;
         }
@@ -337,23 +329,15 @@ void ui_task_func(void *pvParameters)
             }
 
             /* 唤醒恢复：数据已预取就绪，先绘出新图，再恢复背光。 */
-            g_ui_phase = 3U;
             lv_timer_handler();
-            g_ui_heartbeat++;
-            g_ui_phase = 4U;
             menu_backlight_apply();
             continue;
         }
 
-        /* 只用普通RAM心跳记录阶段，不在 UI 热路径做 USART 打印。 */
-        g_ui_phase = 2U;
         ui_loop();
         ui_auto_rotate();
 
-        g_ui_phase = 3U;
         uint32_t t = lv_timer_handler();
-        g_ui_heartbeat++;
-        g_ui_phase = 4U;
         if (t == LV_NO_TIMER_READY) {
             t = LV_DEF_REFR_PERIOD;
         }
