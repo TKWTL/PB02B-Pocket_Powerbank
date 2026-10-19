@@ -635,7 +635,8 @@ uint8_t SW6306_AlgoDischargeSessionActive(void)
 
 /************************ SW6306 低功耗回调算法开始 ***************************/
 /* DeepSleep前让SW6306进入LP；按键或VBUS事件仍可经IRQ唤醒MCU。
- * resume先Unlock；若器件状态已失效则重新Init，并通知算法层重新应用当前配置。 */
+ * resume只退出LP并解锁，不生成CLICK短按（否则Pickup空口会开启A1/5V）；
+ * 若器件状态已失效则重新Init，并通知算法层重新应用当前配置。 */
 void SW6306_AlgoPmSuspend(void *ctx)
 {
     (void)ctx;
