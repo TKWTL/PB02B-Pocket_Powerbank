@@ -9,7 +9,7 @@
 #include "at32f423.h"  /* shared SC7A20/SW6306 IRQ input PB8 */
 
 sc7a20_algo_config_t SC7A20_AlgoConfig = {
-    1U, /* pickup_wake：默认开启（睡眠中可抬起唤醒） */
+    0U, /* pickup_wake：默认关闭，可在菜单中手动开启 */
     0U  /* motion_wake：默认关闭 */
 };
 

@@ -29,6 +29,7 @@
 #define SW6306_CMD_UNUSED_REMOVE  (1U << 9)
 #define SW6306_CMD_CLICK          (1U << 10)
 #define SW6306_CMD_FORCE_OFF      (1U << 11)
+#define SW6306_CMD_STEP_OFF       (1U << 12)
 
 sw6306_algo_config_t SW6306_AlgoConfig = {
     1U, 1U,             /* PD out/in */
@@ -530,15 +531,24 @@ void SW6306_AlgoProcessCommands(void)
         SW6306_UFCSBroadcast();
     }
 
-    /* 同批次点击/强制关口，后者优先，确保长按终态是关闭。
-     * 关闭时退出小电流/慢充并恢复其寄存器状态，允许自动休眠。 */
-        SW6306_AlgoResetAutoOffTimer();
-    if (cmd & SW6306_CMD_FORCE_OFF) {
+    /* 全关优先于分步关、单击；长按先关A1，下一次只剩C1则全关。
+     * 只在关口时退出小电流/慢充；自动空载超时仍使用全关。 */
+    SW6306_AlgoResetAutoOffTimer();
+    if (cmd & (SW6306_CMD_FORCE_OFF | SW6306_CMD_STEP_OFF)) {
         if (s_special_mode != SW6306_SPECIAL_NONE) {
             s_special_mode = SW6306_SPECIAL_NONE;
             sw6306_algo_set_command(SW6306_CMD_POWER | SW6306_CMD_LOW_CURRENT);
         }
-        SW6306_ForceOff();
+        if (cmd & SW6306_CMD_FORCE_OFF) {
+            SW6306_ForceOff();
+        } else {
+            SW6306_PortStatusLoad(); /* 长按时刷新实际端口状态，避免500ms镜像滞后 */
+            if (SW6306_IsInitialized() && SW6306_IsPortA1ON() && SW6306_IsPortC1ON()) {
+                SW6306_PortA1Remove();
+            } else {
+                SW6306_ForceOff();
+            }
+        }
     } else if (cmd & SW6306_CMD_CLICK) {
         SW6306_Click();
     }
@@ -586,6 +596,11 @@ void SW6306_AlgoRequestPowerApply(void)
 void SW6306_AlgoRequestClick(void)
 {
     sw6306_algo_set_command(SW6306_CMD_CLICK);
+}
+
+void SW6306_AlgoRequestStepOff(void)
+{
+    sw6306_algo_set_command(SW6306_CMD_STEP_OFF);
 }
 
 void SW6306_AlgoRequestForceOff(void)

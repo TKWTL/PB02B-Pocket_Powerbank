@@ -208,6 +208,7 @@ static app_action_t key_event(KeyIndex_t k, app_action_t single, app_action_t db
 
 static app_action_t ui_scan_action(void)
 {
+    static uint8_t pwr_long_seen; /* 屏蔽本次长按释放时的短按动作 */
     /* 菜单态：仅单击（导航/确认），双击/长按不进菜单。
      * Auto Flip 开着时画面会跟随重力倒过来，此时按键在视觉上左右对调：
      * 菜单里把 PREV/NEXT 互换，让"屏幕上左/上那个键"仍然是上一项。
@@ -232,18 +233,29 @@ static app_action_t ui_scan_action(void)
         return APP_ACTION_NONE;
     }
 
-    /* 主屏PWR：Rising立即Click，第二击释放后切小电流/慢充，
-     * 长按1.8s的Holding边沿只关口一次。不能用DAS判断单击，
-     * 否则持续按住时每200ms又会发一次Click重新开口。 */
+    /* 主屏PWR：仅短按释放时Click，长按1.8s只在Holding边沿关口一次。
+     * Rising立即Click会在长按期间打开A1，使第二次长按无法关闭C。
+     * 双击仍在第二次释放时触发模式切换。 */
     if (KEY_GetDASClick(KeyIndex_MENU)) { KEY_ClearEdge(KeyIndex_MENU); return APP_ACTION_UP; }
     if (KEY_GetClickTimes(KeyIndex_NEXT, 2U)) {
         KEY_ClearEdge(KeyIndex_NEXT);
+        pwr_long_seen = 0U;
         return APP_ACTION_DOWN_DBL;
     }
     if (menu_app_active() == &menu_app_main) {
         KeyEdge_t edge = Key_EdgeDetect(KeyIndex_NEXT);
-        if (edge == KeyEdge_Holding) { KEY_ClearEdge(KeyIndex_NEXT); return APP_ACTION_DOWN_HOLD; }
-        if (edge == KeyEdge_Rising)  { KEY_ClearEdge(KeyIndex_NEXT); return APP_ACTION_DOWN; }
+        if (edge == KeyEdge_Rising) {
+            pwr_long_seen = 0U;
+            KEY_ClearEdge(KeyIndex_NEXT);
+        } else if (edge == KeyEdge_Holding) {
+            pwr_long_seen = 1U;
+            KEY_ClearEdge(KeyIndex_NEXT);
+            return APP_ACTION_DOWN_HOLD;
+        } else if (edge == KeyEdge_Falling) {
+            KEY_ClearEdge(KeyIndex_NEXT);
+            if (pwr_long_seen) { pwr_long_seen = 0U; return APP_ACTION_NONE; }
+            return APP_ACTION_DOWN;
+        }
     } else if (KEY_GetDASClick(KeyIndex_NEXT)) {
         KEY_ClearEdge(KeyIndex_NEXT);
         return APP_ACTION_DOWN;

@@ -660,12 +660,12 @@ SW6306_RET SW6306_Unlock(SW6306_NOARG)
     SW6306_MUTEX_GIVE;
     SW6306_FUNC_END;
 }
+/* 仅退出LP并解锁寄存器；功率设置和协议更新不得隐式触发短按、打开空A1。 */
 SW6306_RET SW6306_Unlock_Nolock(SW6306_NOARG)
 {
     SW6306_FUNC_BEGIN;
     //SW6306_MUTEX_TAKE;
-    SW6306_SPAWN_ARGS(SW6306_RegsetSwitch, SW6306_CTRG_CLICK);//切换低地址
-    SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_CLICK, SW6306_CLICK);
+    SW6306_SPAWN_ARGS(SW6306_RegsetSwitch, SW6306_CTRG_LPSET);//切换低地址
     SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_LPSET, SW6306_LPSET_EN);
     SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_WREN, 0x20);
     SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_WREN, 0x40);
@@ -1223,7 +1223,7 @@ SW6306_RET SW6306_Init(SW6306_NOARG)
 {
     SW6306_FUNC_BEGIN;
     SW6306_MUTEX_TAKE;
-    //唤醒并解锁寄存器写入（Unlock_Nolock 内部已包含一次 CLICK）
+    //唤醒并解锁寄存器写入；初始化不能模拟短按而在空口开启A1
     SW6306_SPAWN_NOARG(SW6306_Unlock_Nolock);
     //使能UVLO、充放电异常与场景变化中断（插拔/唤醒事件可经IRQ脚发脉冲唤醒MCU）
     //注意：硬件KEY引脚未引出，无需使能按键事件中断（SW6306_KEY_INT_EN）
@@ -1311,10 +1311,8 @@ SW6306_RET SW6306_Init(SW6306_NOARG)
     SW6306_SPAWN_ARGS(SW6306_RegsetSwitch, SW6306_STRG_FAULT0);
     //清标志位
     SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_STRG_FAULT0, SW6306_FAULT0_MSK);
-    //软件触发输出：补发一次短按键事件（0x20=1），打开灯显与已接入的输出口。
-    //初始化开头的短按键发生在KEY0/KEY1配置之前，可能按旧按键行为处理；
-    //在KEY配置与清标志完成后再次触发，确保输出按新配置打开。
-    SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_CLICK, SW6306_CLICK);
+    //不在初始化时模拟短按：空A1被开启会让随后插入的C口进入双口5V模式。
+    //真正的PWR单击仍通过SW6306_Click()触发。
     s_i2c_fail_groups = 0U;
     SW6306_Status.initialized = 1;
     SW6306_MUTEX_GIVE;

@@ -644,9 +644,9 @@ static void main_screen_destroy(void)
  * CONF 双击     开关 WLED（只发 RAM 请求，实际 PWM/端口由 load_task 执行）
  * CONF 长按     连续调光：每 8 次重复发一个 ±1 档请求（约 800ms 一档），
  *               方向在长按结束时翻转，所以是"按住一直变亮/变暗，松手换向"
- * PWR(NEXT) 单击  SW6306 Click打开端口（双击之前可先触发）
+ * PWR(NEXT) 单击  释放后SW6306 Click打开端口（避免长按前误打开A1）
  * PWR(NEXT) 双击  按充电状态切换小电流/慢充
- * PWR(NEXT) 长按1.8s  关闭WLED并强制关闭SW6306全部输出口
+ * PWR(NEXT) 长按1.8s  关闭WLED；A+C先关A1，再次长按关C；单口全关
  * 所有动作只提交RAM请求，SW6306_task是唯一常规寄存器写入者。 */
 void main_screen_run(app_action_t action)
 {
@@ -677,7 +677,7 @@ void main_screen_run(app_action_t action)
         break;
     case APP_ACTION_DOWN_HOLD:
         if (WLED_AlgoIsOn()) WLED_AlgoRequestToggle(); /* 防止假A1重新开口 */
-        SW6306_AlgoRequestForceOff();
+        SW6306_AlgoRequestStepOff();
         break;
     default:
         break;

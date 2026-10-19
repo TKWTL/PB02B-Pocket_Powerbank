@@ -25,8 +25,8 @@
 #define DINO_CLOUD_N         3
 #define DINO_SPEED_Q          12U   /* 1/4096 px/frame；平滑分摊每帧的整数像素 */
 #define DINO_SKY_FADE_FRAMES 42U    /* 42×33ms≈1.39s渐变 */
-#define DINO_SKY_WAIT_MIN    1200U  /* 最短：原120帧×10 = 39.6s */
-#define DINO_SKY_WAIT_RAND   7181U  /* 最长：1200+7180=8380帧，原419帧×20 */
+#define DINO_SKY_WAIT_MIN     600U  /* 最短：600帧×33ms≈19.8s */
+#define DINO_SKY_WAIT_RAND   3591U  /* 最长：600+3590=4190帧≈138.3s */
 
 typedef struct { int16_t x; uint8_t type, active, hit; } cactus_t;
 typedef struct { int16_t x; int8_t y; uint8_t div, phase, active; } cloud_t;

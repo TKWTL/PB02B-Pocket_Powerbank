@@ -86,6 +86,7 @@ void SW6306_AlgoRequestRecordFactoryCapacity(void);
 void SW6306_AlgoRequestReinit(void);
 void SW6306_AlgoRequestSpecialToggle(void);
 void SW6306_AlgoRequestClick(void);
+void SW6306_AlgoRequestStepOff(void); /* PWR长按：A+C先关A1，单口则全关 */
 void SW6306_AlgoRequestForceOff(void);
 
 /* Read-only derived state for UI. */
