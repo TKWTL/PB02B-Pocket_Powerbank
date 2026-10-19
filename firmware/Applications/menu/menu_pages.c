@@ -531,8 +531,8 @@ static const menu_item_t menu_items_powerlimit[] = {
 };
 MENU_PAGE_("PowerLimit", menu_page_powerlimit, menu_items_powerlimit);
 
-/* Output auto-off is independent of the 1h low-current-mode exit timeout.
- * Settings only change RAM; the SW6306 task performs the actual ForceOff. */
+/* 备用软件整机空载关断：默认Disabled（优先A1硬件自动关闭）。
+ * 手动启用会按共享IBUS判定并关闭全部端口，不等同单口独立检测。 */
 static void auto_off_apply(menu_item_t *it)
 {
     (void)it;

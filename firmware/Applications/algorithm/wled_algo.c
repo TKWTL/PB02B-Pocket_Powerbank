@@ -44,6 +44,8 @@ static uint8_t s_path_ok;
 /* Fake A1 ownership is explicit: only a port event created by this policy may
  * later be removed by this policy. */
 static uint8_t s_fake_a1_owned;
+static uint8_t s_manual_a1_owned; /* 用户主动开A1；假插入不得删除此通路 */
+static volatile uint8_t s_manual_port_request; /* 1=开A1，2=关A1 */
 static uint8_t s_insert_pending;
 static uint8_t s_remove_pending;
 static uint16_t s_port_wait_ticks;
@@ -290,7 +292,7 @@ static void wled_update_port_confirmation(uint8_t a1_on)
 {
     if (s_insert_pending != 0U) {
         if (a1_on != 0U) {
-            s_fake_a1_owned = 1U;
+            if (s_manual_a1_owned == 0U) s_fake_a1_owned = 1U;
             s_insert_pending = 0U;
             s_port_wait_ticks = 0U;
         } else if (++s_port_wait_ticks >= WLED_FAKE_A1_RETRY_TICKS) {
@@ -316,8 +318,39 @@ static void wled_meter_path_tick(void)
     uint8_t charging = (SW6306_IsCharging() != 0U) ? 1U : 0U;
     uint8_t on = (s_level != 0U) ? 1U : 0U;
     uint8_t real_path = (c1_on != 0U || charging != 0U) ? 1U : 0U;
+    uint8_t manual_req;
+
+    taskENTER_CRITICAL();
+    manual_req = s_manual_port_request;
+    s_manual_port_request = 0U;
+    taskEXIT_CRITICAL();
 
     wled_update_port_confirmation(a1_on);
+    /* 芯片因空载自行关闭A1后，手动所有权不再保持，防止自动反复插入。 */
+    if (s_manual_a1_owned && !a1_on && !s_insert_pending) s_manual_a1_owned = 0U;
+
+    if (manual_req == 1U) {
+        uint8_t removing = s_remove_pending;
+        s_manual_a1_owned = 1U;
+        s_fake_a1_owned = 0U; /* 已有WLED假A1时无缝转交用户，不再自动拔出 */
+        s_remove_pending = 0U;
+        s_detach_ticks = 0U;
+        s_post_off_ticks = 0U;
+        if (!a1_on || removing) {
+            s_port_cmd = WLED_PORT_CMD_A1_INSERT;
+            s_insert_pending = 1U;
+            s_port_wait_ticks = 0U;
+        } else if (s_port_cmd == WLED_PORT_CMD_A1_REMOVE) {
+            s_port_cmd = WLED_PORT_CMD_NONE;
+        }
+    } else if (manual_req == 2U) {
+        s_manual_a1_owned = 0U;
+        s_fake_a1_owned = 0U;
+        s_insert_pending = 0U;
+        s_remove_pending = 1U;
+        s_port_wait_ticks = 0U;
+        s_port_cmd = WLED_PORT_CMD_A1_REMOVE;
+    }
 
     if (on != 0U) {
         s_post_off_ticks = 0U;
@@ -389,6 +422,8 @@ void WLED_AlgoInit(void)
     s_path_ok = 1U;
 
     s_fake_a1_owned = 0U;
+    s_manual_a1_owned = 0U;
+    s_manual_port_request = 0U;
     s_insert_pending = 0U;
     s_remove_pending = 0U;
     s_port_wait_ticks = 0U;
@@ -402,6 +437,20 @@ void WLED_AlgoInit(void)
     s_sos_active = 0U;
     s_sos_off_tick = 0U;
     s_sos_elapsed_ms = 0U;
+}
+
+void WLED_AlgoRequestA1On(void)
+{
+    taskENTER_CRITICAL();
+    s_manual_port_request = 1U;
+    taskEXIT_CRITICAL();
+}
+
+void WLED_AlgoRequestA1Off(void)
+{
+    taskENTER_CRITICAL();
+    s_manual_port_request = 2U;
+    taskEXIT_CRITICAL();
 }
 
 void WLED_AlgoRequestToggle(void)

@@ -48,7 +48,7 @@ extern sw6306_algo_config_t SW6306_AlgoConfig;
  * 空闲超时改为编译期宏，定义在 sw6306_algo.c 内（退出判据与剩余时间显示
  * 必须始终一致，故不做成可改的 RAM 变量）。 */
 extern uint16_t SW6306_LowCurrentThreshold_mA;
-/* Auto output-off menu settings (runtime-only; timeout index 7 disables). */
+/* 软件整机空载全关为可选回退机制，默认禁用；优先A1硬件空载检测。 */
 extern int32_t SW6306_AutoOffTimeIndex;
 extern int32_t SW6306_AutoOffThreshold_mA;
 void SW6306_AlgoResetAutoOffTimer(void);
@@ -85,8 +85,8 @@ void SW6306_AlgoRequestPowerApply(void);
 void SW6306_AlgoRequestRecordFactoryCapacity(void);
 void SW6306_AlgoRequestReinit(void);
 void SW6306_AlgoRequestSpecialToggle(void);
-void SW6306_AlgoRequestClick(void);
-void SW6306_AlgoRequestStepOff(void); /* PWR长按：A+C先关A1，单口则全关 */
+void SW6306_AlgoRequestC1Insert(void);
+void SW6306_AlgoRequestC1Remove(void);
 void SW6306_AlgoRequestForceOff(void);
 
 /* Read-only derived state for UI. */

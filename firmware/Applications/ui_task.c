@@ -208,13 +208,16 @@ static app_action_t key_event(KeyIndex_t k, app_action_t single, app_action_t db
 
 static app_action_t ui_scan_action(void)
 {
-    static uint8_t pwr_long_seen; /* 屏蔽本次长按释放时的短按动作 */
+    static uint8_t pwr_long_seen, conf_long_seen;
+    static uint8_t pwr_pending, conf_pending;
+    static uint32_t pwr_released, conf_released;
     /* 菜单态：仅单击（导航/确认），双击/长按不进菜单。
      * Auto Flip 开着时画面会跟随重力倒过来，此时按键在视觉上左右对调：
      * 菜单里把 PREV/NEXT 互换，让"屏幕上左/上那个键"仍然是上一项。
      * 只在"当前画面确实倒着"时换 —— 关闭 Auto Flip 时固定正立，无需互换。
      * 应用态（主界面等）的 MENU/NEXT 语义是 HOME/LED，与屏幕方向无关，一律不换。 */
     if (menu_is_active()) {
+        pwr_pending = conf_pending = 0U;
         uint8_t flip = (s_orientation_lock == 0U) &&
                        (menu_auto_flip_get() != 0U) &&
                        (SC7A20_AlgoGetOrientation() == SC7A20_ORIENT_FLIPPED);
@@ -233,33 +236,79 @@ static app_action_t ui_scan_action(void)
         return APP_ACTION_NONE;
     }
 
-    /* 主屏PWR：仅短按释放时Click，长按1.8s只在Holding边沿关口一次。
-     * Rising立即Click会在长按期间打开A1，使第二次长按无法关闭C。
-     * 双击仍在第二次释放时触发模式切换。 */
-    if (KEY_GetDASClick(KeyIndex_MENU)) { KEY_ClearEdge(KeyIndex_MENU); return APP_ACTION_UP; }
-    if (KEY_GetClickTimes(KeyIndex_NEXT, 2U)) {
-        KEY_ClearEdge(KeyIndex_NEXT);
-        pwr_long_seen = 0U;
-        return APP_ACTION_DOWN_DBL;
-    }
+    /* 主界面双击优先：单击只在500ms双击窗口结束后触发。
+     * LED长按期间只发调光事件，PWR长按只发一次C1关闭事件。 */
     if (menu_app_active() == &menu_app_main) {
-        KeyEdge_t edge = Key_EdgeDetect(KeyIndex_NEXT);
-        if (edge == KeyEdge_Rising) {
+        if (KEY_GetDASClick(KeyIndex_MENU)) {
+            KEY_ClearEdge(KeyIndex_MENU);
+            pwr_pending = conf_pending = 0U;
+            return APP_ACTION_UP;
+        }
+        uint32_t now = lv_tick_get();
+        KeyEdge_t pwr_edge, conf_edge;
+        if (KEY_GetClickTimes(KeyIndex_NEXT, 2U)) {
+            pwr_pending = 0U;
+            KEY_ClearEdge(KeyIndex_NEXT);
+            return APP_ACTION_DOWN_DBL;
+        }
+        if (KEY_GetClickTimes(KeyIndex_CONF, 2U)) {
+            conf_pending = 0U;
+            KEY_ClearEdge(KeyIndex_CONF);
+            return APP_ACTION_ENTER_DBL;
+        }
+
+        pwr_edge = Key_EdgeDetect(KeyIndex_NEXT);
+        if (pwr_edge == KeyEdge_Rising) {
             pwr_long_seen = 0U;
             KEY_ClearEdge(KeyIndex_NEXT);
-        } else if (edge == KeyEdge_Holding) {
+        } else if (pwr_edge == KeyEdge_Holding) {
             pwr_long_seen = 1U;
+            pwr_pending = 0U;
             KEY_ClearEdge(KeyIndex_NEXT);
             return APP_ACTION_DOWN_HOLD;
-        } else if (edge == KeyEdge_Falling) {
+        } else if (pwr_edge == KeyEdge_Falling) {
             KEY_ClearEdge(KeyIndex_NEXT);
-            if (pwr_long_seen) { pwr_long_seen = 0U; return APP_ACTION_NONE; }
+            if (!pwr_long_seen) {
+                pwr_pending = 1U;
+                pwr_released = now;
+            }
+            pwr_long_seen = 0U;
+        }
+
+        conf_edge = Key_EdgeDetect(KeyIndex_CONF);
+        if (conf_edge == KeyEdge_Rising) {
+            conf_long_seen = 0U;
+            KEY_ClearEdge(KeyIndex_CONF);
+        } else if (conf_edge == KeyEdge_Holding) {
+            conf_long_seen = 1U;
+            conf_pending = 0U;
+            KEY_ClearEdge(KeyIndex_CONF);
+        } else if (conf_edge == KeyEdge_Falling) {
+            KEY_ClearEdge(KeyIndex_CONF);
+            if (!conf_long_seen) {
+                conf_pending = 1U;
+                conf_released = now;
+            }
+            conf_long_seen = 0U;
+        }
+
+        if (KEY_GetState(KeyIndex_CONF) == KeyState_LongPress) return APP_ACTION_ENTER_HOLD;
+        if (pwr_pending && (uint32_t)(now - pwr_released) >= 500U &&
+            KEY_GetState(KeyIndex_NEXT) != KeyState_ShortPress) {
+            pwr_pending = 0U;
             return APP_ACTION_DOWN;
         }
-    } else if (KEY_GetDASClick(KeyIndex_NEXT)) {
-        KEY_ClearEdge(KeyIndex_NEXT);
-        return APP_ACTION_DOWN;
+        if (conf_pending && (uint32_t)(now - conf_released) >= 500U &&
+            KEY_GetState(KeyIndex_CONF) != KeyState_ShortPress) {
+            conf_pending = 0U;
+            return APP_ACTION_ENTER;
+        }
+        return APP_ACTION_NONE;
     }
+
+    pwr_pending = conf_pending = 0U;
+    if (KEY_GetDASClick(KeyIndex_MENU)) { KEY_ClearEdge(KeyIndex_MENU); return APP_ACTION_UP; }
+    if (KEY_GetDASClick(KeyIndex_NEXT)) { KEY_ClearEdge(KeyIndex_NEXT); return APP_ACTION_DOWN; }
     return key_event(KeyIndex_CONF, APP_ACTION_ENTER, APP_ACTION_ENTER_DBL, APP_ACTION_ENTER_HOLD);
 }
 

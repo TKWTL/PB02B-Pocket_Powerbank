@@ -44,6 +44,8 @@ typedef enum {
 void WLED_AlgoInit(void);
 
 /* UI thread: RAM-only requests. */
+void WLED_AlgoRequestA1On(void);  /* LED单击：A1用户通路，不归WLED假插入所有 */
+void WLED_AlgoRequestA1Off(void); /* LED长按且WLED关闭时，关闭A1 */
 void WLED_AlgoRequestToggle(void);
 void WLED_AlgoRequestBrightnessStep(int8_t step);
 void WLED_AlgoRequestSOS(uint8_t enable); /* overrides normal light, never restores */

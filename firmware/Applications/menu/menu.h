@@ -195,9 +195,9 @@ typedef enum {
     APP_ACTION_ENTER,       /* CONF：单击；菜单：确认 */
     APP_ACTION_ENTER_DBL,   /* CONF：双击；主界面：开关 WLED */
     APP_ACTION_DOWN_DBL,    /* NEXT 双击；主界面：小电流/慢充 */
-    APP_ACTION_DOWN_HOLD,   /* NEXT 长按1.8s；主界面：分步关闭输出 */
-    APP_ACTION_ENTER_HOLD,  /* CONF：长按（持续）；主界面：调光 */
-    APP_ACTION_ENTER_HOLD_END, /* CONF：长按结束（HOLD→NONE 边沿）；主界面：切换调光方向 */
+    APP_ACTION_DOWN_HOLD,   /* NEXT 长按1.8s；主界面：关闭C1 */
+    APP_ACTION_ENTER_HOLD,  /* CONF：长按（持续）；主界面：WLED开则调光，否则关A1 */
+    APP_ACTION_ENTER_HOLD_END, /* CONF：长按结束；调光时翻转调光方向 */
 } app_action_t;
 
 /* ==================== 应用（全屏功能界面）生命周期 ====================

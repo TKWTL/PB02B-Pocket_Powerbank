@@ -640,44 +640,49 @@ static void main_screen_destroy(void)
 }
 
 /* ---------- 主界面按键语义 ----------
- * MENU 单击     打开菜单（先销毁主界面释放内存）
- * CONF 双击     开关 WLED（只发 RAM 请求，实际 PWM/端口由 load_task 执行）
- * CONF 长按     连续调光：每 8 次重复发一个 ±1 档请求（约 800ms 一档），
- *               方向在长按结束时翻转，所以是"按住一直变亮/变暗，松手换向"
- * PWR(NEXT) 单击  释放后SW6306 Click打开端口（避免长按前误打开A1）
- * PWR(NEXT) 双击  按充电状态切换小电流/慢充
- * PWR(NEXT) 长按1.8s  关闭WLED；A+C先关A1，再次长按关C；单口全关
- * 所有动作只提交RAM请求，SW6306_task是唯一常规寄存器写入者。 */
+ * CONF(LED) 单击开A1、双击开关WLED、WLED关闭时长按关闭A1；
+ * WLED开启时长按持续调光，松手换方向。
+ * NEXT(PWR) 单击触发C1插入、双击切换小电流/慢充、长按关闭C1。
+ * MENU单击进入菜单。端口命令由对应任务执行，UI不直接访问I2C。 */
 void main_screen_run(app_action_t action)
 {
-    static int8_t s_wled_dir = -1;      /* 调光方向：-1 减亮（默认）/ +1 增亮 */
-    static uint8_t s_dim_div = 0U;      /* 长按分频计数 */
+    static int8_t s_wled_dir = -1;  /* -1 减亮 / +1 增亮 */
+    static uint8_t s_dim_div;
+    static uint8_t s_led_hold_mode; /* 0=未长按 1=调光 2=关闭A1已执行 */
 
     switch (action) {
     case APP_ACTION_UP:
-        menu_open_from_main(); /* UI dispatcher destroys Main after EXIT. */
+        menu_open_from_main();
+        break;
+    case APP_ACTION_ENTER:
+        WLED_AlgoRequestA1On();
         break;
     case APP_ACTION_ENTER_DBL:
         WLED_AlgoRequestToggle();
         break;
     case APP_ACTION_ENTER_HOLD:
-        if (++s_dim_div >= 8U) {
+        if (s_led_hold_mode == 0U) {
+            s_led_hold_mode = WLED_AlgoIsOn() ? 1U : 2U;
+            if (s_led_hold_mode == 2U) WLED_AlgoRequestA1Off();
+        }
+        if (s_led_hold_mode == 1U && ++s_dim_div >= 8U) {
             s_dim_div = 0U;
             WLED_AlgoRequestBrightnessStep(s_wled_dir);
         }
         break;
     case APP_ACTION_ENTER_HOLD_END:
-        s_wled_dir = (int8_t)(-s_wled_dir);   /* 松手换向 */
+        if (s_led_hold_mode == 1U) s_wled_dir = (int8_t)(-s_wled_dir);
+        s_dim_div = 0U;
+        s_led_hold_mode = 0U;
         break;
     case APP_ACTION_DOWN:
-        SW6306_AlgoRequestClick();
+        SW6306_AlgoRequestC1Insert();
         break;
     case APP_ACTION_DOWN_DBL:
         SW6306_AlgoRequestSpecialToggle();
         break;
     case APP_ACTION_DOWN_HOLD:
-        if (WLED_AlgoIsOn()) WLED_AlgoRequestToggle(); /* 防止假A1重新开口 */
-        SW6306_AlgoRequestStepOff();
+        SW6306_AlgoRequestC1Remove();
         break;
     default:
         break;

@@ -27,9 +27,9 @@
 #define SW6306_CMD_LEARN_REARM    (1U << 7)
 #define SW6306_CMD_LOW_CURRENT    (1U << 8)
 #define SW6306_CMD_UNUSED_REMOVE  (1U << 9)
-#define SW6306_CMD_CLICK          (1U << 10)
+#define SW6306_CMD_C1_INSERT      (1U << 10)
 #define SW6306_CMD_FORCE_OFF      (1U << 11)
-#define SW6306_CMD_STEP_OFF       (1U << 12)
+#define SW6306_CMD_C1_REMOVE      (1U << 12)
 
 sw6306_algo_config_t SW6306_AlgoConfig = {
     1U, 1U,             /* PD out/in */
@@ -51,13 +51,14 @@ sw6306_algo_config_t SW6306_AlgoConfig = {
 static volatile uint16_t s_commands;
 static volatile uint8_t s_special_toggle_req;
 static volatile sw6306_special_mode_t s_special_mode;
+static uint8_t s_a1_auto_off = 0xFFU; /* 0/1为已应用值，0xFF强制重配置 */
 static uint32_t s_last_high_load_tick;
 static uint8_t s_slow_stop_count;
 
 /* RAM-only parameters; not written to NVM. */
 uint16_t SW6306_LowCurrentThreshold_mA = 80U;
 /* 5s,10s,30s,1min(default),5min,15min,30min,Disabled. */
-int32_t SW6306_AutoOffTimeIndex = 3;
+int32_t SW6306_AutoOffTimeIndex = 7; /* 硬件A1空载关断为主；软件全关仅手动启用 */
 int32_t SW6306_AutoOffThreshold_mA = 12;
 static const uint16_t s_auto_off_seconds[7] = {5U,10U,30U,60U,300U,900U,1800U};
 static uint32_t s_auto_off_start;
@@ -250,6 +251,7 @@ void SW6306_AlgoInit(void)
     s_load_phase = 0U;
     s_capacity_cycle = 1U;
     s_special_mode = SW6306_SPECIAL_NONE;
+    s_a1_auto_off = 0xFFU;
     s_special_toggle_req = 0U;
     s_slow_stop_count = 0U;
     SW6306_AlgoResetAutoOffTimer();
@@ -454,8 +456,7 @@ void SW6306_AlgoProcessCommands(void)
     uint16_t cmd = sw6306_algo_take_commands();
     uint8_t retry = 0U;
 
-    if (cmd == 0U) return;
-
+    /* 即使无命令，也要根据WLED/低电流模式调整A1硬件空载策略。 */
     if (cmd & SW6306_CMD_REINIT) {
         SW6306_AlgoInvalidateDischargeSession();
         SW6306_MarkUninitialized();
@@ -466,6 +467,17 @@ void SW6306_AlgoProcessCommands(void)
         /* Configuration commands survive until the task has reinitialized the device. */
         sw6306_algo_restore_commands(cmd);
         return;
+    }
+
+    /* WLED假A1计量/低电流模式不能被硬件空载判定中断。
+     * 只在状态变化时写0x118，避免100ms循环持续I2C写。 */
+    {
+        uint8_t enable = (s_special_mode != SW6306_SPECIAL_LOW_CURRENT &&
+                          WLED_AlgoMeterBusy() == 0U) ? 1U : 0U;
+        if (enable != s_a1_auto_off) {
+            SW6306_A1AutoOffSet(enable);
+            s_a1_auto_off = enable;
+        }
     }
 
     if (cmd & SW6306_CMD_PROTOCOL) {
@@ -531,26 +543,24 @@ void SW6306_AlgoProcessCommands(void)
         SW6306_UFCSBroadcast();
     }
 
-    /* 全关优先于分步关、单击；长按先关A1，下一次只剩C1则全关。
-     * 只在关口时退出小电流/慢充；自动空载超时仍使用全关。 */
-    SW6306_AlgoResetAutoOffTimer();
-    if (cmd & (SW6306_CMD_FORCE_OFF | SW6306_CMD_STEP_OFF)) {
-        if (s_special_mode != SW6306_SPECIAL_NONE) {
-            s_special_mode = SW6306_SPECIAL_NONE;
-            sw6306_algo_set_command(SW6306_CMD_POWER | SW6306_CMD_LOW_CURRENT);
-        }
+    if (cmd & (SW6306_CMD_FORCE_OFF | SW6306_CMD_C1_REMOVE | SW6306_CMD_C1_INSERT)) {
+        SW6306_AlgoResetAutoOffTimer();
         if (cmd & SW6306_CMD_FORCE_OFF) {
-            SW6306_ForceOff();
-        } else {
-            SW6306_PortStatusLoad(); /* 长按时刷新实际端口状态，避免500ms镜像滞后 */
-            if (SW6306_IsInitialized() && SW6306_IsPortA1ON() && SW6306_IsPortC1ON()) {
-                SW6306_PortA1Remove();
-            } else {
-                SW6306_ForceOff();
+            if (s_special_mode != SW6306_SPECIAL_NONE) {
+                s_special_mode = SW6306_SPECIAL_NONE;
+                sw6306_algo_set_command(SW6306_CMD_POWER | SW6306_CMD_LOW_CURRENT);
             }
+            SW6306_ForceOff();
+        } else if (cmd & SW6306_CMD_C1_REMOVE) {
+            SW6306_PortC1Remove(); /* C1 Source才生效，不关闭A1/WLED */
+            if (s_special_mode == SW6306_SPECIAL_LOW_CURRENT &&
+                SW6306_IsPortA1ON() == 0U) {
+                s_special_mode = SW6306_SPECIAL_NONE;
+                sw6306_algo_set_command(SW6306_CMD_POWER | SW6306_CMD_LOW_CURRENT);
+            }
+        } else {
+            SW6306_PortC1Insert(); /* 仅C1为Source时有效；正常CC插拔仍由芯片自治 */
         }
-    } else if (cmd & SW6306_CMD_CLICK) {
-        SW6306_Click();
     }
     sw6306_algo_restore_commands(retry);
 }
@@ -564,6 +574,7 @@ void SW6306_AlgoOnDriverReinitialized(void)
     s_load_phase = 0U;
     s_capacity_cycle = 1U;
     SW6306_AlgoResetAutoOffTimer();
+    s_a1_auto_off = 0xFFU;
     sw6306_algo_set_command(SW6306_CMD_PROTOCOL |
                             SW6306_CMD_POWER |
                             SW6306_CMD_LEARN_ENABLE |
@@ -593,14 +604,14 @@ void SW6306_AlgoRequestPowerApply(void)
     sw6306_algo_set_command(SW6306_CMD_POWER);
 }
 
-void SW6306_AlgoRequestClick(void)
+void SW6306_AlgoRequestC1Insert(void)
 {
-    sw6306_algo_set_command(SW6306_CMD_CLICK);
+    sw6306_algo_set_command(SW6306_CMD_C1_INSERT);
 }
 
-void SW6306_AlgoRequestStepOff(void)
+void SW6306_AlgoRequestC1Remove(void)
 {
-    sw6306_algo_set_command(SW6306_CMD_STEP_OFF);
+    sw6306_algo_set_command(SW6306_CMD_C1_REMOVE);
 }
 
 void SW6306_AlgoRequestForceOff(void)
