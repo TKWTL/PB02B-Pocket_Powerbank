@@ -19,6 +19,9 @@ extern "C" {
 lv_obj_t *menu_ui_create(void);
 /* 按当前菜单状态重绘内容并套用主题 */
 void menu_ui_redraw(void);
+/* 通用非模态通知；仅ui_task调用。severity=1信息/2警告/3严重。 */
+void menu_ui_toast_show(const char *title, const char *message,
+                        uint32_t duration_ms, uint8_t severity);
 
 /* Cross-page transitions; separate from existing within-page TEXT/ICON/WORD
  * motion. One PID and the existing menu 10ms timer drive EXIT -> ENTER. */

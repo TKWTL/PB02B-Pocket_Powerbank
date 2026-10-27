@@ -68,6 +68,7 @@ static const menu_tr_t menu_tr_table[] = {
     { "Battery", "电池" },
     { "Accelerator", "加速度计" },
     { "Timer", "时钟" },
+    { "Fault", "错误" },
     /* Status → Battery */
     { "Max: %lu.%02lu Wh", "最大能量: %lu.%02lu Wh" },
     { "Now: %lu.%02lu Wh", "当前能量: %lu.%02lu Wh" },
@@ -370,7 +371,7 @@ menu_page_t menu_page_sleep_wake, menu_page_system, menu_page_factory_option;
 menu_page_t menu_page_factory_unlock, menu_page_factory_locked, menu_page_transport, menu_page_transport_denied;
 menu_page_t menu_page_sos, menu_page_screen_test_confirm, menu_page_accel_calibrate;
 menu_page_t menu_page_status;      /* ui_task 用 &menu_page_status 判断当前页 */
-menu_page_t menu_page_status_battery, menu_page_status_accel, menu_page_status_timer;
+menu_page_t menu_page_status_battery, menu_page_status_accel, menu_page_status_timer, menu_page_status_fault;
 menu_page_t menu_page_protocol1, menu_page_protocol2, menu_page_powerlimit, menu_page_auto_output_off;
 menu_page_t menu_page_tools, menu_page_about;
 
@@ -720,6 +721,9 @@ static char menu_status_presentcap[24];  /* 库仑计当前能量 */
 static char menu_status_health[24];      /* 健康度 */
 static char menu_status_cycles[24];      /* 等效完整循环 EFC */
 static char menu_status_learn[24];       /* 容量学习状态 */
+static char menu_status_fault_line[24] = "NO FAULT";
+static char menu_status_fault_reason[24] = "Last: None";
+static char menu_status_fault_count[24] = "Count: 0";
 static char menu_status_accel_x[20], menu_status_accel_y[20], menu_status_accel_z[20];
 static char menu_status_accel_temp[24];  /* SC7A20 on-chip temperature ADC raw code */
 static char menu_status_time[16];        /* 时分秒 */
@@ -758,11 +762,21 @@ static const menu_item_t menu_items_status_timer[] = {
 };
 MENU_PAGE_("Timer", menu_page_status_timer, menu_items_status_timer);
 
+/* 只提供最近故障与计数，不实现历史浏览/RTC/NVM。 */
+static const menu_item_t menu_items_status_fault[] = {
+    MENU_ITEM_BACK_("Return"),
+    MENU_ITEM_INFO_(menu_status_fault_line),
+    MENU_ITEM_INFO_(menu_status_fault_reason),
+    MENU_ITEM_INFO_(menu_status_fault_count),
+};
+MENU_PAGE_("Fault", menu_page_status_fault, menu_items_status_fault);
+
 static const menu_item_t menu_items_status[] = {
     MENU_ITEM_BACK_("Return"),
     MENU_ITEM_PAGE_("Battery", &menu_page_status_battery),
     MENU_ITEM_PAGE_("Accelerator", &menu_page_status_accel),
     MENU_ITEM_PAGE_("Timer", &menu_page_status_timer),
+    MENU_ITEM_PAGE_("Fault", &menu_page_status_fault),
 };
 MENU_PAGE_("Status", menu_page_status, menu_items_status);
 
@@ -770,6 +784,21 @@ MENU_PAGE_("Status", menu_page_status, menu_items_status);
  * 全部只读驱动/算法RAM镜像，不在UI线程发起I2C。 */
 void menu_status_refresh(void)
 {
+    sw6306_fault_view_t fault;
+    SW6306_AlgoGetFaultView(&fault);
+    if (fault.code == 0U) {
+        mini_snprintf(menu_status_fault_line, sizeof(menu_status_fault_line), "NO FAULT");
+        mini_snprintf(menu_status_fault_reason, sizeof(menu_status_fault_reason), "Last: None");
+    } else {
+        mini_snprintf(menu_status_fault_line, sizeof(menu_status_fault_line),
+                      "E%02u %s", (unsigned)fault.code,
+                      fault.active ? "ACTIVE" : "HISTORY");
+        mini_snprintf(menu_status_fault_reason, sizeof(menu_status_fault_reason),
+                      "%s", SW6306_AlgoNoticeText(fault.code));
+    }
+    mini_snprintf(menu_status_fault_count, sizeof(menu_status_fault_count),
+                  "Count: %u", (unsigned)fault.count);
+
     /* ---- Battery：全整数字符串格式，避免链接printf浮点转换代码 ---- */
     if (SW6306_IsInitialized()) {
         uint32_t vbat_cv = ((uint32_t)SW6306_ReadVBAT() + 5U) / 10U;

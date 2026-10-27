@@ -71,6 +71,22 @@ void SW6306_AlgoUpdate(void);
 void SW6306_AlgoProcessCommands(void);
 void SW6306_AlgoService100ms(void);
 void SW6306_AlgoInvalidateDischargeSession(void);
+
+/* Latest fault + count only (RAM); no history browsing, RTC or NVM. */
+typedef struct {
+    uint8_t code;       /* E01..E13; 0 = no fault */
+    uint8_t severity;   /* 0 = none, 1 = info, 2 = warning, 3 = critical */
+    uint8_t active;     /* 0x18[7:6] current shutdown, not historical cause */
+    uint16_t count;     /* Number of observed distinct fault events, saturating */
+    uint8_t event0, system, discharge, charge, extra; /* last raw snapshot */
+} sw6306_fault_view_t;
+typedef struct {
+    uint8_t code;       /* 1..13 fault, 100 = capacity learning completed */
+    uint8_t severity;
+} sw6306_notice_t;
+void SW6306_AlgoGetFaultView(sw6306_fault_view_t *out);
+uint8_t SW6306_AlgoTakeNotice(sw6306_notice_t *out);
+const char *SW6306_AlgoNoticeText(uint8_t code);
 void SW6306_AlgoOnDriverReinitialized(void);  /* SW6306_task: 重新应用算法层配置 */
 
 /* pm_device callbacks：SW6306低功耗/恢复策略由算法层统一持有。 */

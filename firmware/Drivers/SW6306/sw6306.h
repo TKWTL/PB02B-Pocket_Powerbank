@@ -1338,7 +1338,16 @@ uint8_t SW6306_IsDischarging(void);             //SW6306是否正在放电（REG
 //实时状态（REG0x18 / ADC采样）
 uint8_t SW6306_IsChargeStoppedByFault(void);    //REG0x18.bit7 异常导致充电关闭（实时）
 uint8_t SW6306_IsDischargeStoppedByFault(void); //REG0x18.bit6 异常导致放电关闭（实时）
-//历史事件（REG0x15/0x2A/0x2B，处理完后用SW6306_ClearEvents清除）
+typedef struct {
+    uint8_t event0;    /* 0x15：W1C事件 */
+    uint8_t system;    /* 0x18：实时状态 */
+    uint8_t discharge; /* 0x2A：放电历史 */
+    uint8_t charge;    /* 0x2B：充电历史（FULL不是异常） */
+    uint8_t extra;     /* 0x2C：额外历史（[7:6]是按键） */
+} sw6306_fault_snapshot_t;
+uint32_t SW6306_StatusReadSequence(void); /* 仅完整StatusLoad成功才递增 */
+void SW6306_GetFaultSnapshot(sw6306_fault_snapshot_t *out);
+/* 历史事件：仅REG0x15可W1C清除；0x2A/0x2B/0x2C不可用此方式清除。 */
 uint8_t SW6306_HasUVLOEvent(void);              //REG0x15.bit4 曾发生UVLO事件
 uint8_t SW6306_HasChargeErrorEvent(void);       //REG0x15.bit3 曾发生充电异常事件
 uint8_t SW6306_HasDischargeErrorEvent(void);    //REG0x15.bit2 曾发生放电异常事件

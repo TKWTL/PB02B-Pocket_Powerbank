@@ -1,6 +1,7 @@
 #include "applications.h"
 
 #include "lvgl.h"
+#include "mini_format.h"
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
 
@@ -8,7 +9,7 @@
 #include "menu_ui.h"
 #include "menu_pages.h"
 #include "functions.h"   /* 主界面创建/显示 + 一次性动作函数 */
-#include "algorithm/sw6306_algo.h" /* 运输请求异步校验结果（RAM） */
+#include "algorithm/sw6306_algo.h" /* 运输请求及故障事件的RAM接口 */
 
 static lv_obj_t *s_menu_scr;   /* 菜单屏（主界面/应用屏由菜单应用模型统一管理） */
 static uint8_t s_orientation_lock;
@@ -63,7 +64,8 @@ static void status_timer_cb(lv_timer_t *t)
     if (pg != &menu_page_status &&
         pg != &menu_page_status_battery &&
         pg != &menu_page_status_accel &&
-        pg != &menu_page_status_timer) {
+        pg != &menu_page_status_timer &&
+        pg != &menu_page_status_fault) {
         return;
     }
 
@@ -218,6 +220,7 @@ static app_action_t ui_scan_action(void)
 {
     static uint8_t pwr_long_seen, conf_long_seen;
     static uint8_t pwr_pending, conf_pending;
+    static uint8_t was_menu = 1U, conf_from_menu;
     static uint32_t pwr_released, conf_released;
     /* 菜单态：仅单击（导航/确认），双击/长按不进菜单。
      * Auto Flip 开着时画面会跟随重力倒过来，此时按键在视觉上左右对调：
@@ -225,6 +228,7 @@ static app_action_t ui_scan_action(void)
      * 只在"当前画面确实倒着"时换 —— 关闭 Auto Flip 时固定正立，无需互换。
      * 应用态（主界面等）的 MENU/NEXT 语义是 HOME/LED，与屏幕方向无关，一律不换。 */
     if (menu_is_active()) {
+        was_menu = 1U;
         pwr_pending = conf_pending = 0U;
         uint8_t flip = (s_orientation_lock == 0U) &&
                        (menu_auto_flip_get() != 0U) &&
@@ -241,6 +245,26 @@ static app_action_t ui_scan_action(void)
         KEY_ClearEdge(KeyIndex_MENU);
         KEY_ClearEdge(KeyIndex_CONF);
         KEY_ClearEdge(KeyIndex_NEXT);
+        return APP_ACTION_NONE;
+    }
+
+    /* 菜单CONF在Rising沿执行返回，Falling沿可能在主屏到达。
+     * 丢弃这次跨页面的整次按键和连击计数，防止误判LED单击开启A1。 */
+    if (was_menu) {
+        was_menu = 0U;
+        conf_from_menu = 1U;
+        conf_pending = 0U;
+        conf_long_seen = 0U;
+    }
+    if (conf_from_menu) {
+        (void)KEY_GetClickTimes(KeyIndex_CONF, 1U);
+        (void)KEY_GetClickTimes(KeyIndex_CONF, 2U);
+        KEY_ClearEdge(KeyIndex_CONF);
+        conf_pending = 0U;
+        if (KEY_GetState(KeyIndex_CONF) != KeyState_ShortPress &&
+            KEY_GetState(KeyIndex_CONF) != KeyState_LongPress) {
+            conf_from_menu = 0U;
+        }
         return APP_ACTION_NONE;
     }
 
@@ -354,6 +378,24 @@ static void ui_loop(void)
     }
 }
 
+/* SW6306任务只提供RAM通知；LVGL必须由UI线程独占调用。
+ * 熄屏时不消费通知也不主动唤醒，恢复显示后再展示最新一条。 */
+static void ui_fault_notice_tick(void)
+{
+    sw6306_notice_t notice;
+    char code[16];
+    if (pm_api_ui_should_block() || menu_ui_transition_busy()) return;
+    if (!SW6306_AlgoTakeNotice(&notice)) return;
+    if (notice.code == 100U) {
+        menu_ui_toast_show("CAPACITY LEARN", "Learning complete", 2500U, 1U);
+        return;
+    }
+    mini_snprintf(code, sizeof(code), "E%02u  %s",
+                  (unsigned)notice.code, notice.severity >= 3U ? "FAULT" : "NOTICE");
+    menu_ui_toast_show(code, SW6306_AlgoNoticeText(notice.code),
+                       notice.severity >= 3U ? 4000U : 2500U, notice.severity);
+}
+
 /* 按键扫描节拍（10ms）：空回调 LVGL 定时器。
  * 作用：让 lv_timer_handler() 始终返回 ~10ms（取未暂停定时器最小剩余时间），
  * 使 ui_loop 的按键扫描稳定在 10ms，不被主界面 500ms 定时器拖慢。
@@ -404,6 +446,7 @@ void ui_task_func(void *pvParameters)
         }
 
         ui_loop();
+        ui_fault_notice_tick();
         ui_auto_rotate();
 
         uint32_t t = lv_timer_handler();

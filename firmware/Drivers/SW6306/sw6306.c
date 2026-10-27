@@ -9,6 +9,8 @@
 static struct SW6306_StatusTypedef SW6306_Status;//SW6306状态全局变量
 
 static uint8_t s_i2c_fail_groups;
+/* 每次StatusLoad完整读成功才递增；SW6306任务靠序号排除旧镜像。 */
+static uint32_t s_status_read_seq;
 static void sw6306_i2c_failed(void)
 {
     if (s_i2c_fail_groups < SW6306_I2C_FAILURE_LIMIT) ++s_i2c_fail_groups;
@@ -466,9 +468,26 @@ SW6306_RET SW6306_StatusLoad(SW6306_NOARG)//将SW6306的各种状态读取到镜
     SW6306_Status.fault1 = t[5];//0x2A
     SW6306_Status.fault2 = t[6];//0x2B
     SW6306_Status.fault3 = t[7];//0x2C
+    ++s_status_read_seq;
     SW6306_MUTEX_GIVE;
     SW6306_FUNC_END;
 }
+uint32_t SW6306_StatusReadSequence(void)
+{
+    return s_status_read_seq;
+}
+
+/* 仅SW6306任务在成功序号变化后消费；状态页不直接读取驱动镜像。 */
+void SW6306_GetFaultSnapshot(sw6306_fault_snapshot_t *out)
+{
+    if (!out) return;
+    out->event0 = SW6306_Status.fault0;
+    out->system = SW6306_Status.sys_stat;
+    out->discharge = SW6306_Status.fault1;
+    out->charge = SW6306_Status.fault2;
+    out->extra = SW6306_Status.fault3;
+}
+
 uint8_t SW6306_IsWLEDON(void)//SW6306 WLED是否打开
 {
     return SW6306_Status.display & SW6306_STRG_DISPLAY_WLED;
@@ -1347,8 +1366,8 @@ SW6306_RET SW6306_Init(SW6306_NOARG)
     
     //切换寄存器组
     SW6306_SPAWN_ARGS(SW6306_RegsetSwitch, SW6306_STRG_FAULT0);
-    //清标志位
-    SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_STRG_FAULT0, SW6306_FAULT0_MSK);
+    /* 初始化不能清除故障事件：先由算法读取完整0x15/0x2A～0x2C快照，
+     * 然后仅对已消费的0x15事件进行W1C确认。 */
     //不在初始化时模拟短按：空A1被开启会让随后插入的C口进入双口5V模式。
     //真正的PWR单击仍通过SW6306_Click()触发。
     s_i2c_fail_groups = 0U;

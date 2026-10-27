@@ -35,6 +35,10 @@
 #define MENU_CORNER_X    1      /* 角落/左右边距 x */
 
 static lv_obj_t *s_scr;        /* 菜单屏 */
+/* Android-like Toast：LVGL top layer上的单实例、非模态、无额外FreeRTOS任务。 */
+static lv_obj_t *s_toast_box;
+static lv_obj_t *s_toast_text;
+static lv_timer_t *s_toast_timer;
 static lv_obj_t *s_header;     /* 左下：菜单名称（主题色） */
 static lv_obj_t *s_indicator;  /* 右上：页码 / EDIT（主题色） */
 static lv_obj_t *s_item_prev;  /* 左上：上一项（灰） */
@@ -1449,6 +1453,58 @@ static void menu_ui_anim_tick(lv_timer_t *t)
     if (full_frame) lv_obj_invalidate(lv_screen_active());
 }
 
+/* ---------- 通用 Menu Toast ----------
+ * 顶层覆盖所有菜单/主界面/应用，不能拦截按键，也不切换菜单页面。
+ * 仅在ui_task中调用LVGL；重复通知复用控件和一次性计时器。 */
+static void menu_ui_toast_expire(lv_timer_t *timer)
+{
+    (void)timer;
+    if (s_toast_box) lv_obj_add_flag(s_toast_box, LV_OBJ_FLAG_HIDDEN);
+    if (s_toast_timer) lv_timer_pause(s_toast_timer);
+}
+
+void menu_ui_toast_show(const char *title, const char *message,
+                        uint32_t duration_ms, uint8_t severity)
+{
+    char text_buf[56];
+    if (!s_toast_box || !s_toast_timer) return;
+    mini_snprintf(text_buf, sizeof(text_buf), "%s\n%s",
+                  title ? title : "", message ? message : "");
+    lv_label_set_text(s_toast_text, text_buf);
+    lv_obj_set_style_border_color(s_toast_box,
+         severity >= 3U ? lv_color_hex(0xE06060) :
+         severity == 2U ? lv_color_hex(0xE0AD63) : lv_color_hex(0x668FB2), 0);
+    lv_obj_remove_flag(s_toast_box, LV_OBJ_FLAG_HIDDEN);
+    lv_timer_set_period(s_toast_timer, duration_ms ? duration_ms : 2500U);
+    lv_timer_reset(s_toast_timer);
+    lv_timer_resume(s_toast_timer);
+}
+
+static void menu_ui_toast_init(void)
+{
+    s_toast_box = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(s_toast_box, 156, 32);
+    lv_obj_align(s_toast_box, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_radius(s_toast_box, 6, 0);
+    lv_obj_set_style_pad_all(s_toast_box, 1, 0);
+    lv_obj_set_style_bg_color(s_toast_box, lv_color_hex(0x17191E), 0);
+    lv_obj_set_style_bg_opa(s_toast_box, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_toast_box, 1, 0);
+    lv_obj_set_style_border_color(s_toast_box, lv_color_hex(0xE06060), 0);
+    lv_obj_remove_flag(s_toast_box, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    s_toast_text = lv_label_create(s_toast_box);
+    lv_obj_set_pos(s_toast_text, 1, 1);
+    lv_obj_set_size(s_toast_text, 150, 28);
+    lv_obj_set_style_text_font(s_toast_text, &lv_font_menucn_12, 0);
+    lv_obj_set_style_text_color(s_toast_text, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_align(s_toast_text, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(s_toast_text, LV_LABEL_LONG_MODE_CLIP);
+    lv_label_set_text(s_toast_text, "");
+    lv_obj_add_flag(s_toast_box, LV_OBJ_FLAG_HIDDEN);
+    s_toast_timer = lv_timer_create(menu_ui_toast_expire, 2500U, NULL);
+    lv_timer_pause(s_toast_timer);
+}
+
 /* ---------- 创建 / 重绘 ---------- */
 lv_obj_t *menu_ui_create(void)
 {
@@ -1564,6 +1620,9 @@ lv_obj_t *menu_ui_create(void)
         lv_obj_add_flag(s_icons[i].img, LV_OBJ_FLAG_HIDDEN);
         s_icons[i].tgt_opa = ICON_SEL_OPA;
     }
+
+    /* Toast独立于菜单屏，跨全屏应用存活，且不拦截任何按键。 */
+    menu_ui_toast_init();
 
     /* PID 动画驱动定时器 */
     s_anim_timer = lv_timer_create(menu_ui_anim_tick, MENU_ANIM_TICK_MS, NULL);

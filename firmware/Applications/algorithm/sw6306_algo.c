@@ -51,6 +51,7 @@ sw6306_algo_config_t SW6306_AlgoConfig = {
  * SW6306_AlgoProcessCommands() 串行执行，避免 UI 线程直接发 I2C。 */
 static volatile uint16_t s_commands;
 static volatile uint8_t s_transport_denied;
+static void sw6306_fault_offer_notice(uint8_t code, uint8_t severity);
 static volatile uint8_t s_special_toggle_req;
 static volatile sw6306_special_mode_t s_special_mode;
 static uint8_t s_a1_auto_off = 0xFFU; /* 0/1为已应用值，0xFF强制重配置 */
@@ -123,11 +124,150 @@ static void sw6306_algo_update_capacity_learning(void)
     sw6306_learn_state_t now = SW6306_ReadLearnState();
 
     if (now == SW6306_LEARN_ST_DONE && s_learn_state != SW6306_LEARN_ST_DONE) {
+        /* 以0xA2 LEARN_END状态转移确认真正的学习完成。
+         * 0x15[5]是事件提示，不能单独作为完成判据；保留原re-arm逻辑。 */
+        sw6306_fault_offer_notice(100U, 1U);
         sw6306_algo_set_command(SW6306_CMD_LEARN_REARM);
     }
     s_learn_state = now;
 }
 /******************************* 容量学习算法结束 *******************************/
+
+/************************ SW6306 故障及轻量通知开始 ************************/
+/* REG0x15 = W1C事件，0x18[7:6] = 仍在进行的保护关断，
+ * REG0x2A/2B/2C = 历史原因；不得把历史位误认作持续故障。
+ * StatusLoad的完整成功序号是唯一新鲜数据依据；这里不增加周期I2C读取。
+ * RAM只保存最近一次故障及累计次数，暂不提供浏览/RTC/NVM。 */
+static sw6306_fault_view_t s_fault;
+static sw6306_notice_t s_notice;
+static uint8_t s_notice_pending;
+static uint32_t s_fault_seen_seq;
+static uint8_t s_fault_prev_events, s_fault_prev_active;
+static uint32_t s_fault_prev_details;
+
+const char *SW6306_AlgoNoticeText(uint8_t code)
+{
+    switch (code) {
+    case 1: return "BAT UVLO";
+    case 2: return "BAT OVERVOLT";
+    case 3: return "CHIP OVERHEAT";
+    case 4: return "NTC OVERHEAT";
+    case 5: return "VBUS SHORT";
+    case 6: return "VBUS OVERLOAD";
+    case 7: return "VBUS OVERVOLT";
+    case 8: return "CHARGE TIMEOUT";
+    case 9: return "BAT TOO LOW";
+    case 10: return "DPDM OVERVOLT";
+    case 11: return "CC OVERVOLT";
+    case 12: return "TEMP LIMIT";
+    case 13: return "POWER PROTECT";
+    case 100: return "CAP LEARN DONE";
+    default: return "NO FAULT";
+    }
+}
+
+static uint8_t sw6306_fault_decode(const sw6306_fault_snapshot_t *s)
+{
+    if (s->event0 & SW6306_FAULT0_UVLO) return 1U;
+    if ((s->discharge & SW6306_FAULT1_OV_BAT) || (s->charge & SW6306_FAULT2_OV_BAT)) return 2U;
+    if ((s->discharge & SW6306_FAULT1_OT_CHIP) || (s->charge & SW6306_FAULT2_OT_CHIP)) return 3U;
+    if ((s->discharge & SW6306_FAULT1_OT_NTC) || (s->charge & SW6306_FAULT2_OT_NTC)) return 4U;
+    if (s->discharge & SW6306_FAULT1_SHT_BUS) return 5U;
+    if (s->discharge & SW6306_FAULT1_OL_BUS) return 6U;
+    if ((s->discharge & (SW6306_FAULT1_SOV_BUS | SW6306_FAULT1_FOV_BUS)) ||
+        (s->charge & (SW6306_FAULT2_SOV_BUS | SW6306_FAULT2_FOV_BUS))) return 7U;
+    if (s->charge & SW6306_FAULT2_OT) return 8U;
+    if (s->charge & SW6306_FAULT2_BATLOW) return 9U;
+    if (s->extra & SW6306_FAULT3_OV_DPDM) return 10U;
+    if (s->extra & SW6306_FAULT3_OV_CC) return 11U;
+    if (s->extra & (SW6306_FAULT3_DCHG_62368UT |
+                    SW6306_FAULT3_CHG_62368UT |
+                    SW6306_FAULT3_CHG_62368OT)) return 12U;
+    if ((s->event0 & (SW6306_FAULT0_CHGERR | SW6306_FAULT0_DISCHGERR)) ||
+        (s->system & (SW6306_SYS_STAT_CHGERR | SW6306_SYS_STAT_DISCHGERR))) return 13U;
+    return 0U;
+}
+
+static void sw6306_fault_offer_notice(uint8_t code, uint8_t severity)
+{
+    /* 重大告警优先；旧Toast若尚未被UI消费，低优先级不能覆盖。 */
+    taskENTER_CRITICAL();
+    if (!s_notice_pending || severity >= s_notice.severity) {
+        s_notice.code = code;
+        s_notice.severity = severity;
+        s_notice_pending = 1U;
+    }
+    taskEXIT_CRITICAL();
+}
+
+void SW6306_AlgoGetFaultView(sw6306_fault_view_t *out)
+{
+    if (!out) return;
+    taskENTER_CRITICAL();
+    *out = s_fault;
+    taskEXIT_CRITICAL();
+}
+
+uint8_t SW6306_AlgoTakeNotice(sw6306_notice_t *out)
+{
+    uint8_t has;
+    if (!out) return 0U;
+    taskENTER_CRITICAL();
+    has = s_notice_pending;
+    if (has) {
+        *out = s_notice;
+        s_notice_pending = 0U;
+    }
+    taskEXIT_CRITICAL();
+    return has;
+}
+
+static void sw6306_fault_poll(void)
+{
+    sw6306_fault_snapshot_t snap;
+    uint32_t seq = SW6306_StatusReadSequence();
+    uint32_t details;
+    uint8_t event_err, live, code, new_fault;
+
+    if (seq == 0U || seq == s_fault_seen_seq) return;
+    s_fault_seen_seq = seq;
+    SW6306_GetFaultSnapshot(&snap);
+
+    /* FULL不是故障；REG0x2C[7:6]是芯片按键编码，不参与故障签名。 */
+    details = (uint32_t)snap.discharge |
+              ((uint32_t)(snap.charge & (uint8_t)~SW6306_FAULT2_FULL) << 8) |
+              ((uint32_t)(snap.extra & 0x1FU) << 16);
+    event_err = snap.event0 & (SW6306_FAULT0_UVLO |
+                               SW6306_FAULT0_CHGERR | SW6306_FAULT0_DISCHGERR);
+    live = snap.system & (SW6306_SYS_STAT_CHGERR | SW6306_SYS_STAT_DISCHGERR);
+    new_fault = ((event_err && ((event_err & (uint8_t)~s_fault_prev_events) != 0U ||
+                                 details != s_fault_prev_details)) ||
+                 (!s_fault_prev_active && live) ||
+                 (details && !s_fault_prev_details)) ? 1U : 0U;
+    code = sw6306_fault_decode(&snap);
+    taskENTER_CRITICAL();
+    if (new_fault && code != 0U) {
+        s_fault.code = code;
+        s_fault.severity = (code == 12U || code == 6U || code == 8U) ? 2U : 3U;
+        if (s_fault.count != 0xFFFFU) ++s_fault.count;
+        s_fault.event0 = snap.event0;
+        s_fault.discharge = snap.discharge;
+        s_fault.charge = snap.charge;
+        s_fault.extra = snap.extra;
+    }
+    s_fault.system = snap.system;
+    s_fault.active = (live != 0U) ? 1U : 0U;
+    taskEXIT_CRITICAL();
+
+    if (new_fault && code != 0U) sw6306_fault_offer_notice(code, s_fault.severity);
+
+    s_fault_prev_events = snap.event0;
+    s_fault_prev_active = live;
+    s_fault_prev_details = details;
+    /* 快照及通知入RAM后才清事件。0x2A～0x2C不可写1清零。 */
+    if (snap.event0 != 0U) SW6306_ClearEvents(snap.event0);
+}
+/************************ SW6306 故障及轻量通知结束 **************************/
 
 /************************ SW6306 分层寄存器Load算法开始 ************************/
 /* 保留原SW6306_task的100ms错相访问，避免把多组I2C读集中到同一时刻：
@@ -253,6 +393,11 @@ void SW6306_AlgoInit(void)
     s_load_phase = 0U;
     s_capacity_cycle = 1U;
     s_special_mode = SW6306_SPECIAL_NONE;
+    s_fault_seen_seq = 0U;
+    s_fault_prev_events = s_fault_prev_active = 0U;
+    s_fault_prev_details = 0U;
+    s_notice_pending = 0U;
+    s_fault = (sw6306_fault_view_t){0};
     s_transport_denied = 0U;
     s_a1_auto_off = 0xFFU;
     s_special_toggle_req = 0U;
@@ -388,6 +533,8 @@ void SW6306_AlgoService100ms(void)
     uint32_t now = xTaskGetTickCount();
 
     if (!SW6306_IsInitialized()) return;
+
+    sw6306_fault_poll();
 
     taskENTER_CRITICAL();
     toggle = s_special_toggle_req;

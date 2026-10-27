@@ -23,6 +23,7 @@ extern menu_page_t menu_page_status;
 extern menu_page_t menu_page_status_battery;
 extern menu_page_t menu_page_status_accel;
 extern menu_page_t menu_page_status_timer;
+extern menu_page_t menu_page_status_fault;
 extern menu_page_t menu_page_time;
 extern menu_page_t menu_page_transport;
 extern menu_page_t menu_page_transport_denied;
