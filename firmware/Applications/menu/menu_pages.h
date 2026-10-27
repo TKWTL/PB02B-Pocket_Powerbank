@@ -24,6 +24,8 @@ extern menu_page_t menu_page_status_battery;
 extern menu_page_t menu_page_status_accel;
 extern menu_page_t menu_page_status_timer;
 extern menu_page_t menu_page_time;
+extern menu_page_t menu_page_transport;
+extern menu_page_t menu_page_transport_denied;
 
 /* 状态页实时信息缓冲区（由 menu_status_refresh 定时更新） */
 extern char menu_status_bat[24];

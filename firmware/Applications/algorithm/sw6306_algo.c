@@ -30,6 +30,7 @@
 #define SW6306_CMD_C1_INSERT      (1U << 10)
 #define SW6306_CMD_FORCE_OFF      (1U << 11)
 #define SW6306_CMD_C1_REMOVE      (1U << 12)
+#define SW6306_CMD_TRANSPORT      (1U << 13)
 
 sw6306_algo_config_t SW6306_AlgoConfig = {
     1U, 1U,             /* PD out/in */
@@ -49,6 +50,7 @@ sw6306_algo_config_t SW6306_AlgoConfig = {
 /* UI/算法只置 RAM bit；真正的 SW6306 寄存器写由 SW6306_task 调用
  * SW6306_AlgoProcessCommands() 串行执行，避免 UI 线程直接发 I2C。 */
 static volatile uint16_t s_commands;
+static volatile uint8_t s_transport_denied;
 static volatile uint8_t s_special_toggle_req;
 static volatile sw6306_special_mode_t s_special_mode;
 static uint8_t s_a1_auto_off = 0xFFU; /* 0/1为已应用值，0xFF强制重配置 */
@@ -251,6 +253,7 @@ void SW6306_AlgoInit(void)
     s_load_phase = 0U;
     s_capacity_cycle = 1U;
     s_special_mode = SW6306_SPECIAL_NONE;
+    s_transport_denied = 0U;
     s_a1_auto_off = 0xFFU;
     s_special_toggle_req = 0U;
     s_slow_stop_count = 0U;
@@ -562,6 +565,16 @@ void SW6306_AlgoProcessCommands(void)
             SW6306_PortC1Insert(); /* 仅C1为Source时有效；正常CC插拔仍由芯片自治 */
         }
     }
+    /* 运输请求必须由SW6306任务在真实端口状态刷新后确认；不能仅凭UI镜像。
+     * WLED仍在工作时即使USB口未连接，也拒绝进入Standby。 */
+    if (cmd & SW6306_CMD_TRANSPORT) {
+        if (WLED_AlgoMeterBusy() == 0U && SW6306_TransportPortsIdle() != 0U) {
+            s_transport_denied = 0U;
+            pm_api_enter_transport_mode();
+        } else {
+            s_transport_denied = 1U;
+        }
+    }
     sw6306_algo_restore_commands(retry);
 }
 
@@ -602,6 +615,22 @@ void SW6306_AlgoRequestUFCSBroadcast(void)
 void SW6306_AlgoRequestPowerApply(void)
 {
     sw6306_algo_set_command(SW6306_CMD_POWER);
+}
+
+void SW6306_AlgoRequestTransportMode(void)
+{
+    s_transport_denied = 0U;
+    sw6306_algo_set_command(SW6306_CMD_TRANSPORT);
+}
+
+uint8_t SW6306_AlgoTakeTransportDenied(void)
+{
+    uint8_t denied;
+    taskENTER_CRITICAL();
+    denied = s_transport_denied;
+    s_transport_denied = 0U;
+    taskEXIT_CRITICAL();
+    return denied;
 }
 
 void SW6306_AlgoRequestC1Insert(void)

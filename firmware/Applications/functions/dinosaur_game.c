@@ -26,7 +26,7 @@
 #define DINO_SPEED_Q          12U   /* 1/4096 px/frame；平滑分摊每帧的整数像素 */
 #define DINO_SKY_FADE_FRAMES 42U    /* 42×33ms≈1.39s渐变 */
 #define DINO_SKY_WAIT_MIN     600U  /* 最短：600帧×33ms≈19.8s */
-#define DINO_SKY_WAIT_RAND   3591U  /* 最长：600+3590=4190帧≈138.3s */
+/* 随机附加等待为0～(MIN-1)帧：切换间隔范围[M,2M-1]，只需调整MIN。 */
 
 typedef struct { int16_t x; uint8_t type, active, hit; } cactus_t;
 typedef struct { int16_t x; int8_t y; uint8_t div, phase, active; } cloud_t;
@@ -152,7 +152,7 @@ static void reset_game(void)
     /* 新一局随机初始昼夜与切换时间；MENU退出/返回不调用reset_game。 */
     g.sky_level = (next_rand() & 1U) ? DINO_SKY_FADE_FRAMES : 0U;
     g.sky_step = 0;
-    g.sky_wait = DINO_SKY_WAIT_MIN + next_rand() % DINO_SKY_WAIT_RAND;
+    g.sky_wait = DINO_SKY_WAIT_MIN + next_rand() % DINO_SKY_WAIT_MIN;
     g.ready = 1;
 }
 static lv_obj_t *sprite(const lv_image_dsc_t *src)
@@ -231,7 +231,7 @@ static void update_sky(void)
         g.sky_level = (uint8_t)((int16_t)g.sky_level + g.sky_step);
         if (g.sky_level == 0U || g.sky_level == DINO_SKY_FADE_FRAMES) {
             g.sky_step = 0;
-            g.sky_wait = DINO_SKY_WAIT_MIN + next_rand() % DINO_SKY_WAIT_RAND;
+            g.sky_wait = DINO_SKY_WAIT_MIN + next_rand() % DINO_SKY_WAIT_MIN;
         }
     } else if (g.sky_wait) {
         --g.sky_wait;

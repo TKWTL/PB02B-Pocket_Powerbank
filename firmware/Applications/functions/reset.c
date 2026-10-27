@@ -12,6 +12,7 @@
 #include "functions.h"
 #include "framework/nvm_store.h"
 #include "framework/pm_api.h"
+#include "algorithm/sw6306_algo.h"
 
 static volatile uint8_t s_reset_pending;
 
@@ -26,7 +27,7 @@ void action_reset_now(menu_item_t *it)
 void action_transport_mode(menu_item_t *it)
 {
     (void)it;
-    pm_api_enter_transport_mode();
+    SW6306_AlgoRequestTransportMode();
 }
 
 void action_reset_process(void)

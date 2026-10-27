@@ -1,8 +1,8 @@
 /* AUTO-GENERATED. DO NOT EDIT.
  * Source: Fusion Pixel Font 12px Proportional zh-Hans BDF (SIL OFL 1.1).
- * All 313 glyphs use original Fusion Pixel BDF bitmaps.
- * The 16 formerly substituted Noto glyphs were replaced with native BDF
- * pixels (11x11 1bpp), without rasterization/scaling/antialiasing.
+ * 313 original Fusion Pixel BDF glyphs plus U+62FF (拿): temporary 11x11
+ * pixel-aligned bitmap based on Noto Sans CJK SC Regular (SIL OFL 1.1).
+ * Remaining glyphs retain original BDF bitmaps without modification.
  * Line box: 12px; font baseline adjusted down 2px visually for Chinese menu.
  */
 #include "lvgl.h"
@@ -254,6 +254,7 @@ static const uint8_t glyph_bitmap[] = {
     0x01, 0xFF, 0xE0, 0x0C, 0xF9, 0x91, 0x33, 0xE6, 0x01, 0x80, 0xFC, 0xB2, 0x97, 0x72, 0x4B, 0xFF,
     0xC8, 0x21, 0x3F, 0x20, 0x8A, 0xFD, 0x40, 0x2A, 0xA8, 0x80, 0x09, 0x01, 0x13, 0xFF, 0x85, 0x00,
     0xA0, 0x24, 0x84, 0xA1, 0x18, 0x22, 0x28, 0xC6, 0x27, 0x80, 0x74, 0x62, 0x11, 0x10, 0x80, 0x20,
+    0x04, 0x02, 0x21, 0x7D, 0x1F, 0xC3, 0xF8, 0x01, 0x0D, 0x01, 0xFC, 0x7F, 0xC0, 0x80, 0x30, 0x00, /* U+62FF */
 };
 
 static const lv_font_fmt_txt_glyph_dsc_t glyph_dsc[] = {
@@ -450,6 +451,7 @@ static const lv_font_fmt_txt_glyph_dsc_t glyph_dsc[] = {
     {.bitmap_index=1972, .adv_w=192, .box_w=11, .box_h=11, .ofs_x=0, .ofs_y=-1}, /* U+6240 */
     {.bitmap_index=1988, .adv_w=192, .box_w=11, .box_h=11, .ofs_x=0, .ofs_y=-1}, /* U+6253 */
     {.bitmap_index=2004, .adv_w=192, .box_w=11, .box_h=11, .ofs_x=0, .ofs_y=-1}, /* U+62AC */
+    {.bitmap_index=3936, .adv_w=192, .box_w=11, .box_h=11, .ofs_x=0, .ofs_y=-1}, /* U+62FF */
     {.bitmap_index=2020, .adv_w=192, .box_w=11, .box_h=11, .ofs_x=0, .ofs_y=-1}, /* U+6309 */
     {.bitmap_index=2036, .adv_w=192, .box_w=11, .box_h=11, .ofs_x=0, .ofs_y=-1}, /* U+636E */
     {.bitmap_index=2052, .adv_w=192, .box_w=11, .box_h=11, .ofs_x=0, .ofs_y=-1}, /* U+64AD */
@@ -582,7 +584,7 @@ static const uint16_t unicode_list_cn[] = {
     22647, 22657, 22811, 23222, 23260, 23274, 23277, 23305, 23318, 23382, 23391, 23402,
     23455, 23861, 23862, 23874, 23973, 24003, 24004, 24054, 24071, 24144, 24159, 24227,
     24229, 24277, 24314, 24401, 24437, 24480, 24498, 24671, 24927, 24928, 24976, 24995,
-    25084, 25177, 25278, 25597, 25761, 25792, 25815, 25856, 25865, 25909, 25926, 25998,
+    25084, 25167, 25177, 25278, 25597, 25761, 25792, 25815, 25856, 25865, 25909, 25926, 25998,
     26192, 26200, 26201, 26221, 26234, 26287, 26421, 26481, 26640, 26993, 27249, 27423,
     27524, 27538, 27568, 27797, 27803, 27969, 27989, 28025, 28040, 28128, 28607, 28681,
     29190, 29399, 29439, 29816, 29829, 29865, 30320, 30517, 30545, 30858, 31010, 31051,
@@ -601,7 +603,7 @@ static const lv_font_fmt_txt_cmap_t cmaps[] = {
      .type=LV_FONT_FMT_TXT_CMAP_FORMAT0_TINY},
     {.range_start=176, .range_length=65136,
      .glyph_id_start=96, .unicode_list=unicode_list_cn,
-     .glyph_id_ofs_list=NULL, .list_length=218,
+     .glyph_id_ofs_list=NULL, .list_length=219,
      .type=LV_FONT_FMT_TXT_CMAP_SPARSE_TINY},
 };
 

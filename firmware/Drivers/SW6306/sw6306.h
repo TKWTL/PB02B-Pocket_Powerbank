@@ -1352,6 +1352,7 @@ uint8_t SW6306_ReadFaultCharge(void);           //读取REG0x2B充电异常历�
 uint8_t SW6306_ReadSystemStatus(void);          //读取REG0x18系统实时状态
 //端口状态相关操作
 SW6306_RET SW6306_PortStatusLoad(SW6306_NOARG); //更新端口状态镜像寄存器(0x13,0x18,0x19,0x1C,0x1D)
+uint8_t SW6306_TransportPortsIdle(void);        //实时读取端口与CC；I2C失败或占用均返回0
 uint8_t SW6306_IsPortC1ON(void);                //读取C1口通路是否打开
 uint8_t SW6306_IsPortC2ON(void);                //读取C2口通路是否打开
 uint8_t SW6306_IsPortA1ON(void);                //读取A1口通路是否打开

@@ -153,7 +153,7 @@ static const menu_tr_t menu_tr_table[] = {
     /* ---- Sleep & Wake 页 ---- */
     { "Auto Sleep", "自动休眠" },
     { "None", "不休眠" },
-    { "Pickup Wake", "抬起唤醒" },
+    { "Pickup Wake", "拿起唤醒" },
     { "Motion Wake", "运动唤醒" },
     { "Home Delay", "唤醒回主页" },
     { "1 min", "1 分钟" },
@@ -175,6 +175,8 @@ static const menu_tr_t menu_tr_table[] = {
     { "Unlocked", "已解锁" },
     { "Wrong Password", "密码错误" },
     { "Transport Mode", "运输模式" },
+    { "Output Busy", "输出未关闭" },
+    { "Close Active Ports", "请先关闭输出" },
     { "Minimum Power State", "最低功耗状态" },
     { "Wake: Press PWR/NEXT", "按 PWR/NEXT 唤醒" },
     { "System Will Reset", "系统将复位" },
@@ -365,7 +367,7 @@ static void auto_flip_apply(menu_item_t *it)
 menu_page_t menu_page_display, menu_page_time, menu_page_powerbank, menu_page_reset;
 menu_page_t menu_page_settings;
 menu_page_t menu_page_sleep_wake, menu_page_system, menu_page_factory_option;
-menu_page_t menu_page_factory_unlock, menu_page_factory_locked, menu_page_transport;
+menu_page_t menu_page_factory_unlock, menu_page_factory_locked, menu_page_transport, menu_page_transport_denied;
 menu_page_t menu_page_sos, menu_page_screen_test_confirm, menu_page_accel_calibrate;
 menu_page_t menu_page_status;      /* ui_task 用 &menu_page_status 判断当前页 */
 menu_page_t menu_page_status_battery, menu_page_status_accel, menu_page_status_timer;
@@ -690,6 +692,15 @@ static const char * const word_transport[] = {
     "Press CONF to Enter",
 };
 MENU_WORD_CONFIRM_(menu_page_transport, word_transport, action_transport_mode);
+
+/* 运输请求的端口检查在SW6306_task中执行；拒绝后UI单独显示原因。
+ * 仅使用现有中文精简字库字符，不增加新UI组件。 */
+static const char * const word_transport_denied[] = {
+    "Output Busy",
+    "Close Active Ports",
+    "Press CONF to Exit",
+};
+MENU_WORD_INFO_(menu_page_transport_denied, word_transport_denied);
 
 static const menu_item_t menu_items_system[] = {
     MENU_ITEM_BACK_("Return"),

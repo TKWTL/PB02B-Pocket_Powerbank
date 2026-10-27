@@ -8,6 +8,7 @@
 #include "menu_ui.h"
 #include "menu_pages.h"
 #include "functions.h"   /* 主界面创建/显示 + 一次性动作函数 */
+#include "algorithm/sw6306_algo.h" /* 运输请求异步校验结果（RAM） */
 
 static lv_obj_t *s_menu_scr;   /* 菜单屏（主界面/应用屏由菜单应用模型统一管理） */
 static uint8_t s_orientation_lock;
@@ -43,6 +44,13 @@ static void status_timer_cb(lv_timer_t *t)
     }
 
     pg = menu_current_page();
+
+    /* WORD_CONFIRM 在调用action前先弹出确认页；拒绝事件到达时
+     * 当前已经在System父页，所以不能只检查menu_page_transport。 */
+    if (SW6306_AlgoTakeTransportDenied() != 0U) {
+        menu_enter_page(&menu_page_transport_denied);
+        return;
+    }
 
     if (pg == &menu_page_time) {
         if (!menu_get_state()->editing) {
