@@ -119,8 +119,6 @@ extern "C" {
 /* Private defines -------------------------------------------------------------*/
 #define NEXT_PIN    GPIO_PINS_0
 #define NEXT_GPIO_PORT    GPIOA
-#define WP_PIN    GPIO_PINS_3
-#define WP_GPIO_PORT    GPIOA
 #define LED_PIN    GPIO_PINS_0
 #define LED_GPIO_PORT    GPIOB
 #define CONF_PIN    GPIO_PINS_1

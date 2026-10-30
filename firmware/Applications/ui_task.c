@@ -5,6 +5,8 @@
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
 
+#include "pm_api.h"           /* pm_api_lcd_blank_*（显示输出门闩） */
+
 #include "menu.h"
 #include "menu_ui.h"
 #include "menu_pages.h"
@@ -410,7 +412,18 @@ void ui_task_func(void *pvParameters)
 {
     (void)pvParameters;
     lv_init();
+
+    /* 开机：LCD VDD 由 PA3~PA7 供电，必须先上电（内部含 5ms 稳定等待），
+     * 再让驱动发复位/初始化命令。 */
+    GC9D01_PowerRailSet(1);
+
     lv_port_disp_init();
+
+    /* 开机同样要走"刷帧 → DISPON → 背光"这条路径：
+     * GC9D01_Init() 不自带 DISPON(0x29)，若这里不置门闩，面板会永远停在 DISPOFF
+     * （表现就是背光亮着、画面永不更新）。置 1 后由主循环的"显示输出门闩"块统一收尾。 */
+    pm_api_lcd_blank_set(1U);
+
     lv_port_indev_init();
     menu_init();
     s_menu_scr = menu_ui_create();
@@ -421,10 +434,12 @@ void ui_task_func(void *pvParameters)
     lv_timer_create(ui_scan_tick_cb, 10, NULL);
 
     while (1) {
-        /* 低功耗阻塞：非 RUN 状态或唤醒数据未就绪时主动让出 CPU，等待恢复 */
+        /* 低功耗阻塞：PM 未回到 RUN（休眠/睡眠准备/运输模式）时主动让出 CPU。
+         * 5ms 粒度：原来 100ms 一次会让"解除阻塞→开背光"平均多等 50ms、最坏 100ms，
+         * 把 LCD 自己的时序完全掩盖掉。数据新鲜度不再参与阻塞（见 pm_api_ui_should_block）。 */
         uint8_t woke = 0;
         while (pm_api_ui_should_block()) {
-            vTaskDelay(pdMS_TO_TICKS(100));
+            vTaskDelay(pdMS_TO_TICKS(5));
             woke = 1;
         }
 
@@ -439,10 +454,25 @@ void ui_task_func(void *pvParameters)
                 menu_show_main_locked();
             }
 
-            /* 唤醒恢复：数据已预取就绪，先绘出新图，再恢复背光。 */
-            lv_timer_handler();
-            menu_backlight_apply();
+            /* 画面与背光统一由下方"显示输出门闩"处理：
+             * 不依赖本分支是否被执行（PM 可能在 ui_task 下次检查前就回到 RUN）。 */
             continue;
+        }
+
+        /* ── 显示输出门闩 ──────────────────────────────────────────────────────
+         * 睡前面板被 DISPOFF（并置门闩），这里在"PM 已回到 RUN"后统一收尾：
+         *   ① lv_timer_handler()：让 LVGL 定时器把该失效的区域标脏
+         *   ② lv_refr_now(NULL)：同步刷新，disp_flush() 内部等 DMA 发完 → 新帧真进 GRAM
+         *   ③ DISPON：此刻才让面板开始扫描输出，它锁存到的第一帧就是新画面
+         *   ④ 开背光
+         * 顺序不能换：DISPON 早于 GRAM 更新 → 面板会先输出睡前那帧（偶发闪旧画面）。
+         * 也不能依赖上面的 woke 分支：PM 可能在其之前就回到 RUN。 */
+        if (pm_api_lcd_blank_get() != 0U) {
+            lv_timer_handler();
+            lv_refr_now(NULL);
+            GC9D01_DisplayPower(1);
+            menu_backlight_apply();
+            pm_api_lcd_blank_set(0U);
         }
 
         ui_loop();

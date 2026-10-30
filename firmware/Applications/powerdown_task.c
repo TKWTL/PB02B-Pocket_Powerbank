@@ -81,10 +81,11 @@ void pm_api_set_sleep_block(uint8_t mask, uint8_t enable)
 
 uint8_t pm_api_ui_should_block(void)
 {
-    /* UI 阻塞：非 RUN 状态，或唤醒后数据尚未预取就绪（先查后显，避免旧值闪现） */
+    /* 只按"系统是否还没回到 RUN"阻塞 UI（快速唤醒）。
+     * 数据新鲜度不再挡画面：唤醒时先用最后一帧亮屏，随后由状态定时器用新值重绘。
+     * 数据显示会晚约一个预取周期；这段足够短，不额外做降亮度提示。 */
     return (s_transport_req != 0U) ||
-           pm_controller_is_ui_blocked(&s_pm_ctrl) ||
-           (s_wake_data_ready == 0U);
+           pm_controller_is_ui_blocked(&s_pm_ctrl);
 }
 
 uint8_t pm_api_is_sleeping(void)
@@ -113,6 +114,19 @@ uint8_t pm_api_get_block_mask(void)
 void pm_api_request_data_refresh(void)
 {
     s_data_refresh_req = 1;
+}
+
+/* LCD 显示输出门闩：睡前置 1（面板已 DISPOFF），ui_task 首帧写完后发 DISPON 再清 0 */
+static volatile uint8_t s_lcd_blank;
+
+void pm_api_lcd_blank_set(uint8_t on)
+{
+    s_lcd_blank = on;
+}
+
+uint8_t pm_api_lcd_blank_get(void)
+{
+    return s_lcd_blank;
 }
 
 uint8_t pm_api_data_refresh_pending(void)

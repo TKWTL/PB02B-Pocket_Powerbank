@@ -16,9 +16,9 @@
         <Parameters>
             <ParametersSub name="ClockPrescaler" value="ADC_HCLK_DIV_15"/>
             <ParametersSub name="Clock" value="10000000"/>
-            <ParametersSub name="Channel_OrdinarySequence_1" value="ADC_CHANNEL_17"/>
-            <ParametersSub name="SamplingTime_OrdinarySequence_1" value="ADC_SAMPLETIME_6_5"/>
-            <ParametersSub name="SamplingRate_OrdinarySequence_1" value="0.526"/>
+            <ParametersSub name="Channel_OrdinarySequence_1" value="ADC_CHANNEL_16"/>
+            <ParametersSub name="SamplingTime_OrdinarySequence_1" value="ADC_SAMPLETIME_92_5"/>
+            <ParametersSub name="SamplingRate_OrdinarySequence_1" value="0.095"/>
         </Parameters>
     </ADC1>
     <CRC>
@@ -238,9 +238,6 @@
             <Parameters name="GPIO_PullType_Set" value="GPIO_PULL_DOWN"/>
             <Parameters name="Label" value="NEXT"/>
         </Signal>
-        <Signal SignalName="GPIO_Output" PinName="PA3">
-            <Parameters name="Label" value="WP"/>
-        </Signal>
         <Signal SignalName="TMR1_CH2C" PinName="PB0">
             <Parameters name="Label" value="LED"/>
         </Signal>
@@ -314,7 +311,13 @@
     </ClockConfiguration>
     <PINInfo>
         <PinSub pinname="PA0" signalname="EXINT0" signaltype="3"/>
+        <PinSub pinname="PA1" signalname="GPIO_Output" signaltype="3"/>
+        <PinSub pinname="PA2" signalname="GPIO_Output" signaltype="3"/>
         <PinSub pinname="PA3" signalname="GPIO_Output" signaltype="3"/>
+        <PinSub pinname="PA4" signalname="GPIO_Output" signaltype="3"/>
+        <PinSub pinname="PA5" signalname="GPIO_Output" signaltype="3"/>
+        <PinSub pinname="PA6" signalname="GPIO_Output" signaltype="3"/>
+        <PinSub pinname="PA7" signalname="GPIO_Output" signaltype="3"/>
         <PinSub pinname="PB0" signalname="TMR1_CH2C" signaltype="3"/>
         <PinSub pinname="PB1" signalname="EXINT1" signaltype="3"/>
         <PinSub pinname="PB2" signalname="EXINT2" signaltype="3"/>

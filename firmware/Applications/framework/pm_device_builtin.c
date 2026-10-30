@@ -7,6 +7,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "wk_system.h"
+#include "at32f423_wk_config.h"   /* wk_adc1_init()：唤醒后重新使能并校准 ADC1 */
+#include "pm_api.h"           /* pm_api_lcd_blank_set()：显示输出门闩 */
 
 /* AT32F423 MCU为一个PM设备：进低功耗是独立的“执行阶段”而非普通
  * suspend回调，以确保外围设备先挂起、RTC起点先记录、唤醒时钟先恢复。
@@ -14,6 +16,92 @@
 #ifndef PM_AT32_EXTRA_LOW_POWER
 #define PM_AT32_EXTRA_LOW_POWER 1
 #endif
+
+/* ── 睡眠期引脚处理（2026-10-27 实测确认的省电项，已转为产品行为）──
+ *
+ * 实测依据（7.85V 主控面板输入，差分固件 A/B）：
+ *   - 睡眠期把 USART1 的 PA9/PA10 和 LCD 的 SPI/控制脚置于模拟输入后，
+ *     面板电流明显下降；这些脚在睡眠期继续驱动会对外供电、或被板上钳位吸收。
+ *   - 原固件睡眠期实测 TX 只有 1.25V（正常驱动应为 2.9V），说明线上确实有负载。
+ * 因此：睡前把这些脚放成高阻，唤醒后**立刻**恢复成与 wk_*_init() 完全一致的配置。
+ * 恢复必须在 xTaskResumeAll() 之前完成，否则唤醒后第一个 printf / 刷屏会发不出去。
+ */
+static void pm_sleep_pins_idle(void)
+{
+    gpio_init_type g;
+
+    gpio_default_para_init(&g);
+    g.gpio_mode = GPIO_MODE_ANALOG;
+    g.gpio_pull = GPIO_PULL_NONE;
+
+    /* USART1：TX(PA9) / RX(PA10) */
+    g.gpio_pins = (uint16_t)(GPIO_PINS_9 | GPIO_PINS_10);
+    gpio_init(GPIOA, &g);
+
+    /* LCD：RST(PA8) / DC(PA12) / CS(PA15) —— 此时面板已 DISPOFF+SLPIN */
+    g.gpio_pins = (uint16_t)(GPIO_PINS_8 | GPIO_PINS_12 | GPIO_PINS_15);
+    gpio_init(GPIOA, &g);
+
+    /* LCD：SCK(PB3) / MOSI(PB5) */
+    g.gpio_pins = (uint16_t)(GPIO_PINS_3 | GPIO_PINS_5);
+    gpio_init(GPIOB, &g);
+
+    /* 引脚已全部高阻，最后才切 LCD 供电：这样不会有任何引脚继续反向给屏供电。
+     * 断电后屏内寄存器全部丢失，唤醒必须走冷启动（pm_gc9d01_resume 已按此实现）。 */
+    GC9D01_PowerRailSet(0);
+}
+
+static void pm_sleep_pins_restore(void)
+{
+    gpio_init_type g;
+
+    /* 先给屏上电（内部含 5ms 稳定等待），再把 SPI/RST/DC 恢复成驱动模式：
+     * 避免向未上电的屏灌电流，也保证复位/初始化命令发出时 VDD 已经稳。 */
+    GC9D01_PowerRailSet(1);
+
+    /* USART1：与 wk_usart1_init() 一致（MUX_7） */
+    gpio_pin_mux_config(GPIOA, GPIO_PINS_SOURCE9, GPIO_MUX_7);
+    gpio_pin_mux_config(GPIOA, GPIO_PINS_SOURCE10, GPIO_MUX_7);
+    gpio_default_para_init(&g);
+    g.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+    g.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
+    g.gpio_mode = GPIO_MODE_MUX;
+    g.gpio_pins = (uint16_t)(GPIO_PINS_9 | GPIO_PINS_10);
+    g.gpio_pull = GPIO_PULL_NONE;
+    gpio_init(GPIOA, &g);
+
+    /* LCD：SCK(PB3)/MOSI(PB5) 复用 SPI3，驱动强度与 wk_spi3_init() 一致 */
+    gpio_pin_mux_config(GPIOB, GPIO_PINS_SOURCE3, GPIO_MUX_6);
+    gpio_pin_mux_config(GPIOB, GPIO_PINS_SOURCE5, GPIO_MUX_6);
+    gpio_default_para_init(&g);
+    g.gpio_drive_strength = GPIO_DRIVE_STRENGTH_STRONGER;
+    g.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
+    g.gpio_mode = GPIO_MODE_MUX;
+    g.gpio_pins = (uint16_t)(GPIO_PINS_3 | GPIO_PINS_5);
+    g.gpio_pull = GPIO_PULL_NONE;
+    gpio_init(GPIOB, &g);
+
+    /* LCD：CS(PA15) 复用 SPI3 硬件片选（MODERATE） */
+    gpio_pin_mux_config(GPIOA, GPIO_PINS_SOURCE15, GPIO_MUX_6);
+    gpio_default_para_init(&g);
+    g.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+    g.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
+    g.gpio_mode = GPIO_MODE_MUX;
+    g.gpio_pins = GPIO_PINS_15;
+    g.gpio_pull = GPIO_PULL_NONE;
+    gpio_init(GPIOA, &g);
+
+    /* LCD：RST(PA8) 输出高（不复位）、DC(PA12) 输出低，与 wk_gpio_config() 一致 */
+    gpio_default_para_init(&g);
+    g.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+    g.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
+    g.gpio_mode = GPIO_MODE_OUTPUT;
+    g.gpio_pins = (uint16_t)(GPIO_PINS_8 | GPIO_PINS_12);
+    g.gpio_pull = GPIO_PULL_NONE;
+    gpio_bits_set(GPIOA, GPIO_PINS_8);
+    gpio_bits_reset(GPIOA, GPIO_PINS_12);
+    gpio_init(GPIOA, &g);
+}
 
 static void pm_at32_deepsleep(void *ctx)
 {
@@ -23,6 +111,9 @@ static void pm_at32_deepsleep(void *ctx)
 
     /* ④ 忙等 10ms：确认无残留总线中断待处理（调度器已挂起，无新事务） */
     wk_delay_ms(10);
+
+    /* ④b 日志排空后，把 UART/LCD 的驱动脚放成高阻（睡眠期不再对外驱动） */
+    pm_sleep_pins_idle();
 
     /* ⑤ 停止 wk_tick（TMR7）时基：防止休眠过程中产生意外中断 */
     tmr_interrupt_enable(TMR7, TMR_OVF_INT, FALSE);
@@ -37,6 +128,22 @@ static void pm_at32_deepsleep(void *ctx)
 
     /* ⑦ 关闭未用外设时钟：DeepSleep 期间 CPU 停，外设时钟仅增加静态功耗。
        保留 GPIOA/B/F（EXINT 唤醒需要）与 PWC/SCFG，唤醒后再恢复。 */
+    /* ⑦ 睡前关闭片内 ADC1（实测最大单项：约 260µA 面板电流）
+     * 为什么必须手动关：main() 里的 wk_adc1_init() 打开了 ADC1，并同时使能了
+     * 「内部温度传感器 + VREFINT 缓冲」(ADCCOM.itsrven)。这两样在 DeepSleep 期间
+     * 仍然耗电，而只关 ADC1 时钟是抓不到它们的。
+     * 这里三步一起做：itsrven=0 → ADEN=0 → 关 ADC1 时钟（下面时钟列表）。
+     * 唤醒侧见 pm_at32_deepsleep() 结尾的 wk_adc1_init()：重新使能并重新校准。 */
+    crm_periph_clock_enable(CRM_ADC1_PERIPH_CLOCK, TRUE);   /* 先开时钟，保证下面两笔寄存器写入生效 */
+    {
+        adc_common_config_type adc_common_off;
+
+        adc_common_default_para_init(&adc_common_off);
+        adc_common_off.div = ADC_HCLK_DIV_15;          /* 与 wk_adc1_init 的分频一致 */
+        adc_common_off.tempervintrv_state = FALSE;     /* 关内部温度传感器/VREFINT 缓冲 */
+        adc_common_config(&adc_common_off);
+    }
+    adc_enable(ADC1, FALSE);
     crm_periph_clock_enable(CRM_DMA1_PERIPH_CLOCK, FALSE);
     crm_periph_clock_enable(CRM_TMR1_PERIPH_CLOCK, FALSE);
     crm_periph_clock_enable(CRM_ADC1_PERIPH_CLOCK, FALSE);
@@ -63,6 +170,12 @@ static void pm_at32_deepsleep(void *ctx)
 #else
     pwc_voltage_regulate_set(PWC_REGULATOR_LOW_POWER);
 #endif
+
+    /* LICK 关闭（2026-10-27 产品化）：LICK 在 wk_periph_clock_config() 里打开后从没关过，
+     * 而本工程未使用片内 ERTC / WWDT / 唤醒定时器，睡眠期用不到 32k 低速时钟。
+     * 唤醒路径先开 HICK、不依赖 LICK，因此不需要恢复代码。 */
+    crm_clock_source_enable(CRM_CLOCK_SOURCE_LICK, FALSE);
+
     pwc_deep_sleep_mode_enter(PWC_DEEP_SLEEP_ENTER_WFI);
 
     /* ──── 唤醒后 ──── */
@@ -121,7 +234,16 @@ static void pm_at32_deepsleep(void *ctx)
     crm_periph_clock_enable(CRM_USART1_PERIPH_CLOCK, TRUE);
     crm_periph_clock_enable(CRM_I2C1_PERIPH_CLOCK, TRUE);
 
-    /* 时钟树和外设均已恢复，最后开启tick与RTOS调度。 */
+    /* 时钟树和外设均已恢复，先把 UART/LCD 引脚恢复成产品配置（LCD VDD 也在这里上电），
+     * 再开启 tick 与 RTOS 调度——否则唤醒后第一句 printf / 第一次刷屏会发不出去。 */
+    pm_sleep_pins_restore();
+
+    /* 唤醒后重新使能 ADC1（含内部温度传感器/VREFINT）并做一次完整校准。
+     * 睡前这三样都被关掉了；不复位重配就只是"打开"，校准系数会失效。
+     * wk_adc1_init() 就是 WorkBench 生成的完整初始化（reset → 公共配置 → 通道 →
+     * enable → 等 RDY → 校准开始/等待），直接复用，避免第二份实现。 */
+    wk_adc1_init();
+
     SysTick->CTRL |= (uint32_t)SysTick_CTRL_TICKINT_Msk;
     xTaskResumeAll();
 
@@ -177,16 +299,22 @@ static void pm_gc9d01_suspend(void *ctx)
 {
     (void)ctx;
     GC9D01_DisplayPower(0);
+    /* 面板已 DISPOFF：置"显示输出待恢复"门闩，唤醒后由 ui_task 在首帧写完后
+     * 发 DISPON 再点亮背光（不依赖 ui_task 的某个分支何时执行）。
+     * 真正的 VDD 切断在 pm_sleep_pins_idle() 末尾（引脚高阻之后）。 */
+    pm_api_lcd_blank_set(1U);
     GC9D01_SleepModeEnter();
 }
 
 static void pm_gc9d01_resume(void *ctx)
 {
     (void)ctx;
-    GC9D01_SleepModeExit();
-    GC9D01_DisplayPower(1);
-    /* 保持灭：亮屏由 ui_task 在唤醒数据预取完成、绘出新图后按菜单背光值恢复
-     * （避免休眠前旧值闪现）。 */
+
+    /* 睡眠期 LCD VDD 已断开，屏内寄存器全部丢失 → 唤醒必须走完整冷启动：
+     * 复位 + 全部寄存器配置（二维表）+ 关背光。DISPON 交给 ui_task：
+     * 它把首帧写进 GRAM 之后再发 0x29，面板锁存到的第一帧就是新画面。 */
+    GC9D01_HardReset();
+    GC9D01_Init();
     GC9D01_SetBL(0);
 }
 

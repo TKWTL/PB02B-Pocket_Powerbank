@@ -42,6 +42,13 @@ void pm_api_sleep_gate_set(uint8_t on);   /* on=1 睡眠门控（load 任务停�
 uint8_t pm_api_sleep_gate_get(void);      /* 查询睡眠门控 */
 uint8_t pm_api_bus_locks_idle(void);      /* 所有总线互斥锁（I2C/SPI）空闲？ */
 
+/* LCD 显示输出门闩：
+ * 睡前把面板 DISPOFF 后置 1；ui_task 把首帧写进 GRAM、发完 DISPON 再清 0。
+ * 这样"面板什么时候开始输出"与"帧是否已写好"绑定，不依赖 ui_task 的某个分支
+ * 是否被执行（PM 可能在 ui_task 下一次检查前就回到 RUN）。 */
+void pm_api_lcd_blank_set(uint8_t on);
+uint8_t pm_api_lcd_blank_get(void);
+
 #ifdef __cplusplus
 }
 #endif

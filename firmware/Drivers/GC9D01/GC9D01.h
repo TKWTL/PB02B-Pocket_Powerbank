@@ -27,6 +27,25 @@ extern C {
 #include "bsp_spi.h"
 #include "bsp_tmr.h"
 
+/* ── 初始化/唤醒时序参数（单位 ms，2026-10-27 实机验证后固化）───────────────
+ *   GC9D01_RESET_LOW_MS    : 硬件复位低电平保持
+ *   GC9D01_INIT_SETTLE_MS  : Init 内复位释放后的稳定等待
+ *   GC9D01_INIT_SLPOUT_MS  : Init 内发送 Sleep Out(0x11) 后的等待
+ *   GC9D01_SLPOUT_MS       : 唤醒时 Sleep Out 后的等待（断电方案下由 Init 走）
+ *   GC9D01_SLPIN_MS        : 进入 Sleep In 后的等待（关断时序，不占唤醒时间）
+ *   GC9D01_PWR_SETTLE_MS   : LCD VDD(PA3~PA7) 上电后的稳定等待
+ *
+ * 这组值是实测"能正常出图"的下限附近：原上游默认是 20/200/100/250/250，
+ * 冷启动总等待曾达 320ms，现在是 5+5+10=20ms 量级。
+ * 若要再压，必须重新验证画面正确性（背光点亮 ≠ 画面有效），并做冷启动/低温/低压回归。
+ * ------------------------------------------------------------------------- */
+#define GC9D01_RESET_LOW_MS     5U
+#define GC9D01_INIT_SETTLE_MS   5U
+#define GC9D01_INIT_SLPOUT_MS   10U
+#define GC9D01_SLPOUT_MS        10U
+#define GC9D01_SLPIN_MS         100U
+#define GC9D01_PWR_SETTLE_MS    5U
+
 #include "stdlib.h"
 #include "stdint.h"
 #include "string.h"
@@ -125,6 +144,13 @@ extern uint16_t GC9D01_Y_Start;
 void GC9D01_Init(void);
 void GC9D01_DrawImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t* data);	
 void GC9D01_HardReset(void);
+
+/* ── LCD 供电开关：PA3~PA7 五个 GPIO 并联 ─────────────────────────────────────
+ * （旧版电路里这几个脚是 SPI Flash 的 WP/IO，Flash 已拆、脚悬空，故改作 LCD VDD 开关）
+ * on=1：五脚推挽输出高 + 等 GC9D01_PWR_SETTLE_MS(5ms) 供电稳定；
+ * on=0：五脚拉低，立即生效（不等待）。
+ * 断电前必须先把 SPI/RST/DC 置高阻（pm_sleep_pins_idle 已按此顺序实现）。 */
+void GC9D01_PowerRailSet(uint8_t on);
 void GC9D01_SleepModeEnter( void );
 void GC9D01_SleepModeExit( void );
 void GC9D01_ColorModeSet(uint8_t ColorMode);

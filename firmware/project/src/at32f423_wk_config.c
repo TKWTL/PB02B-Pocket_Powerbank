@@ -258,14 +258,16 @@ void wk_gpio_config(void)
   /* add user code end gpio_config 1 */
 
   /* gpio output config */
-  gpio_bits_reset(GPIOA, WP_PIN | DC_PIN);
+  gpio_bits_reset(GPIOA, GPIO_PINS_1 | GPIO_PINS_2 | GPIO_PINS_3 | GPIO_PINS_4 | GPIO_PINS_5 | 
+                  GPIO_PINS_6 | GPIO_PINS_7 | DC_PIN);
   gpio_bits_set(SRST_GPIO_PORT, SRST_PIN);
   gpio_bits_reset(GPIOB, GPIO_PINS_4);
 
   gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
   gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
   gpio_init_struct.gpio_mode = GPIO_MODE_OUTPUT;
-  gpio_init_struct.gpio_pins = WP_PIN | SRST_PIN | DC_PIN;
+  gpio_init_struct.gpio_pins = GPIO_PINS_1 | GPIO_PINS_2 | GPIO_PINS_3 | GPIO_PINS_4 | GPIO_PINS_5 | 
+                               GPIO_PINS_6 | GPIO_PINS_7 | SRST_PIN | DC_PIN;
   gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
   gpio_init(GPIOA, &gpio_init_struct);
 
@@ -281,12 +283,6 @@ void wk_gpio_config(void)
   gpio_init_struct.gpio_pins = GPIO_PINS_0 | GPIO_PINS_1;
   gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
   gpio_init(GPIOF, &gpio_init_struct);
-
-  gpio_init_struct.gpio_mode = GPIO_MODE_ANALOG;
-  gpio_init_struct.gpio_pins = GPIO_PINS_1 | GPIO_PINS_2 | GPIO_PINS_4 | GPIO_PINS_5 | GPIO_PINS_6 | 
-                               GPIO_PINS_7;
-  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
-  gpio_init(GPIOA, &gpio_init_struct);
 
   /* add user code begin gpio_config 2 */
 
@@ -542,7 +538,7 @@ void wk_adc1_init(void)
   adc_resolution_set(ADC1, ADC_RESOLUTION_12B);
 
   /* adc_ordinary_conversionmode---------------------------------------------------- */
-  adc_ordinary_channel_set(ADC1, ADC_CHANNEL_17, 1, ADC_SAMPLETIME_6_5);
+  adc_ordinary_channel_set(ADC1, ADC_CHANNEL_16, 1, ADC_SAMPLETIME_92_5);
 
   /* When "ADC_ORDINARY_TRIG_SOFTWARE" is selected, user can only use software trigger. \
   The software trigger function is adc_ordinary_software_trigger_enable(ADCx, TRUE); */
