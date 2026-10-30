@@ -16,6 +16,7 @@
  * VDDA与VCC同轨时近似显示VCC，绝对温度需单点校准。 */
 static volatile uint8_t s_mcu_adc_active;
 static volatile uint8_t s_mcu_adc_valid;
+static volatile uint8_t s_mcu_adc_busy; /* PM需要等待正在进行的ADC采样完全关断 */
 static volatile uint16_t s_mcu_adc_vcc_mv;
 static volatile int16_t s_mcu_adc_temp_dC;
 static uint32_t s_mcu_adc_last_tick;
@@ -30,6 +31,11 @@ void mcu_adc_set_active(uint8_t active)
     }
     s_mcu_adc_active = on;
     taskEXIT_CRITICAL();
+}
+
+uint8_t mcu_adc_is_busy(void)
+{
+    return s_mcu_adc_busy;
 }
 
 uint8_t mcu_adc_read_cached(uint16_t *vcc_mv, int16_t *temp_dC)
@@ -258,6 +264,15 @@ void load_task(void *pvParameters)
              (uint32_t)(xTaskGetTickCount() - s_mcu_adc_last_tick) >= pdMS_TO_TICKS(1000))) {
             uint16_t vcc;
             int16_t temp;
+            /* 与睡眠门控竞态必须在临界区中决策/宣告busy。
+             * PM断言门控后不会再开启新的ADC采样。 */
+            taskENTER_CRITICAL();
+            if (pm_api_sleep_gate_get()) {
+                taskEXIT_CRITICAL();
+                continue;
+            }
+            s_mcu_adc_busy = 1U;
+            taskEXIT_CRITICAL();
             s_mcu_adc_last_tick = xTaskGetTickCount();
             if (mcu_adc_sample_once(&vcc, &temp)) {
                 taskENTER_CRITICAL();
@@ -268,6 +283,7 @@ void load_task(void *pvParameters)
             } else {
                 s_mcu_adc_valid = 0U;
             }
+            s_mcu_adc_busy = 0U; /* 此时ADCEN、内部传感器和时钟均已关闭 */
         }
 
         /* SD3078 快速服务：没有 pending 时只检查 RAM flag，不访问 I2C。 */

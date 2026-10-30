@@ -2,6 +2,7 @@
 
 #include "framework/pm_controller.h"
 #include "framework/pm_device.h"
+#include "framework/mcu_adc.h"
 #include "freertos_app.h"   /* mutex_i2c_handle / mutex_gspi_handle：睡眠总线门控 */
 
 static pm_controller_t s_pm_ctrl;
@@ -192,6 +193,8 @@ static uint8_t pm_rtc_stamp_seconds(uint32_t *stamp)
 /* 所有总线互斥锁空闲？（非阻塞获取成功即空闲，获取后立即释放，不改变状态） */
 uint8_t pm_api_bus_locks_idle(void)
 {
+    /* load_task的ADC并不占用I2C/SPI互斥锁，也必须先完成再关时钟。 */
+    if (mcu_adc_is_busy()) return 0U;
     if (mutex_i2c_handle != NULL && xSemaphoreTake(mutex_i2c_handle, 0) != pdTRUE) {
         return 0;   /* I2C 忙：有任务正在读写 */
     }
