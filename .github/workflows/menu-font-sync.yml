@@ -26,7 +26,7 @@ jobs:
             -o /tmp/fusion-pixel.zip
           mkdir -p /tmp/fusion-pixel-bdf
           unzip -q /tmp/fusion-pixel.zip -d /tmp/fusion-pixel-bdf
-          found="$(find /tmp/fusion-pixel-bdf -type f \\( -name 'fusion-pixel-12px-proportional-zh_hans.bdf' -o -name 'fusion-pixel-12px-proportional-zh_hans.bdf.gz' \\) -print -quit)"
+          found="$(find /tmp/fusion-pixel-bdf -type f -name 'fusion-pixel-12px-proportional-zh_hans.bdf*' -print -quit)"
           test -n "$found" || { echo "Official zh_hans BDF not found" >&2; exit 1; }
           if [[ "$found" == *.gz ]]; then gzip -dc "$found" > /tmp/menu-font.bdf
           else cp "$found" /tmp/menu-font.bdf; fi
