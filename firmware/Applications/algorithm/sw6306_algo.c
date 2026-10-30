@@ -31,6 +31,7 @@
 #define SW6306_CMD_FORCE_OFF      (1U << 11)
 #define SW6306_CMD_C1_REMOVE      (1U << 12)
 #define SW6306_CMD_TRANSPORT      (1U << 13)
+#define SW6306_CMD_PORT_QC        (1U << 14)
 
 sw6306_algo_config_t SW6306_AlgoConfig = {
     1U, 1U,             /* PD out/in */
@@ -49,6 +50,10 @@ sw6306_algo_config_t SW6306_AlgoConfig = {
 /***************************** 通用命令请求机制开始 *****************************/
 /* UI/算法只置 RAM bit；真正的 SW6306 寄存器写由 SW6306_task 调用
  * SW6306_AlgoProcessCommands() 串行执行，避免 UI 线程直接发 I2C。 */
+/* PORTQC仅禁止该口快充能力，不会物理关断5V/CC。默认全开。 */
+uint8_t SW6306_PortC1InFast = 1U;
+uint8_t SW6306_PortC1OutFast = 1U;
+uint8_t SW6306_PortA1OutFast = 1U;
 static volatile uint16_t s_commands;
 static volatile uint8_t s_transport_denied;
 static void sw6306_fault_offer_notice(uint8_t code, uint8_t severity);
@@ -411,6 +416,7 @@ void SW6306_AlgoInit(void)
     s_commands = SW6306_CMD_PROTOCOL |
                  SW6306_CMD_POWER |
                  SW6306_CMD_LEARN_ENABLE |
+                 SW6306_CMD_PORT_QC |
                  SW6306_CMD_UNUSED_REMOVE;
     taskEXIT_CRITICAL();
 }
@@ -652,6 +658,11 @@ void SW6306_AlgoProcessCommands(void)
         SW6306_ProtocolEnable(SW6306_PROTO_UFCS,  SW6306_PROTO_DIR_SINK,   SW6306_AlgoConfig.ufcs_in);
     }
 
+    if (cmd & SW6306_CMD_PORT_QC) {
+        SW6306_PortFastChargeSet(SW6306_PORT_C1, SW6306_PORT_DIR_IN, SW6306_PortC1InFast);
+        SW6306_PortFastChargeSet(SW6306_PORT_C1, SW6306_PORT_DIR_OUT, SW6306_PortC1OutFast);
+        SW6306_PortFastChargeSet(SW6306_PORT_A1, SW6306_PORT_DIR_OUT, SW6306_PortA1OutFast);
+    }
     if (cmd & SW6306_CMD_POWER) {
         SW6306_SetMaxOutputPower((uint8_t)SW6306_AlgoConfig.output_power_w);
         uint8_t input_w = (uint8_t)SW6306_AlgoConfig.input_power_w;
@@ -739,6 +750,7 @@ void SW6306_AlgoOnDriverReinitialized(void)
                             SW6306_CMD_POWER |
                             SW6306_CMD_LEARN_ENABLE |
                             SW6306_CMD_LOW_CURRENT |
+                            SW6306_CMD_PORT_QC |
                             SW6306_CMD_UNUSED_REMOVE);
 }
 /*************************** SW6306 配置应用算法结束 ****************************/
@@ -757,6 +769,11 @@ void SW6306_AlgoRequestPPSBroadcast(void)
 void SW6306_AlgoRequestUFCSBroadcast(void)
 {
     sw6306_algo_set_command(SW6306_CMD_UFCS_BROADCAST);
+}
+
+void SW6306_AlgoRequestPortFastChargeApply(void)
+{
+    sw6306_algo_set_command(SW6306_CMD_PORT_QC);
 }
 
 void SW6306_AlgoRequestPowerApply(void)

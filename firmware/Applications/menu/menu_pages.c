@@ -34,7 +34,8 @@
 #include "applications.h"   /* 传感器/时间共享镜像（load_task 0.5s 同步）：g_sensor_mirror */
 #include "drivers.h"        /* 统一驱动包含头：GC9D01_SetBL / SW6306_SetMaxOutputPower 等 */
 #include "functions.h"     /* 菜单 MENU_ITEM_ACTION_ 调用的一次性函数（含主界面动作） */
-#include "framework/pm_api.h"  /* 电源管理：自动休眠开关/超时设置（pm_api_set_sleep_timeout） */
+#include "framework/pm_api.h"  /* 电源管理 */
+#include "framework/mcu_adc.h" /* MCU内部ADC RAM镜像 */
 
 /* ---------- 状态页实时信息缓冲区（ui_task 定时更新） ---------- */
 char menu_status_bat[24] = "--.-V --.-A";
@@ -117,7 +118,10 @@ static const menu_tr_t menu_tr_table[] = {
     { "System", "系统" },
     /* Settings → PowerBank */
     { "PowerLimit", "功率设置" },
-    { "Auto Output Off", "自动关闭输出" },
+    { "Port Settings", "端口设置" },
+    { "C1 Input Fast", "C口输入快充" },
+    { "C1 Output Fast", "C口输出快充" },
+    { "A1 Output Fast", "A口输出快充" },
     { "Protocol#1", "协议组 #1" },
     { "Protocol#2", "协议组 #2" },
     { "Idle Timeout", "空载时间" },
@@ -157,6 +161,10 @@ static const menu_tr_t menu_tr_table[] = {
     { "Pickup Wake", "拿起唤醒" },
     { "Motion Wake", "运动唤醒" },
     { "Home Delay", "唤醒回主页" },
+    { "Sleep Now", "立刻休眠" },
+    { "Immediate", "立刻回主页" },
+    { "30 sec", "30 秒" },
+    { "1 hour", "1 小时" },
     { "1 min", "1 分钟" },
     { "5 min", "5 分钟" },
     { "15 min", "15 分钟" },
@@ -271,7 +279,7 @@ static uint8_t s_theme_toggle = 0;          /* 0=深色 1=浅色 */
 static int32_t s_theme_color_idx = 0;       /* 主题色在色板中的下标 */
 static int32_t s_backlight = 8;             /* 背光亮度 1~16，默认 8 */
 static int32_t s_sleep_idx = 4;             /* 自动休眠：ENUM 选项下标（默认 30s），0=不休眠 */
-static int32_t s_wake_home_idx = 2;         /* 唤醒回主页：默认 DeepSleep >=5min */
+static int32_t s_wake_home_idx = 4;         /* 唤醒回主页：默认 DeepSleep >=5min */
 /* 自动翻转开关：ON=按重力方向自动 180° 翻转；OFF=固定方向（画面永远正立，默认）。
  * 与背光一样是运行时设置，未持久化。 */
 static uint8_t s_auto_flip = 0;
@@ -295,15 +303,18 @@ static const char * const s_sleep_opts[] = {
 static const int s_sleep_opts_sec[] = { 0, 5, 10, 15, 30, 60, 120, 300, 600 };
 
 static const char * const s_wake_home_opts[] = {
-    "Off", "1 min", "5 min", "15 min", "30 min",
+    "Off", "Immediate", "30 sec", "1 min", "5 min", "15 min", "30 min", "1 hour",
 };
-static const uint16_t s_wake_home_sec[] = { 0U, 60U, 300U, 900U, 1800U };
+/* Off使用哨兵值，0表示唤醒后立即回主页；原默认仍是5分钟。 */
+static const uint32_t s_wake_home_sec[] = {
+    0xFFFFFFFFUL, 0U, 30U, 60U, 300U, 900U, 1800U, 3600U
+};
 
 uint32_t menu_wake_home_after_sec(void)
 {
     if (s_wake_home_idx < 0 ||
         s_wake_home_idx >= (int32_t)(sizeof(s_wake_home_sec) / sizeof(s_wake_home_sec[0]))) {
-        return 0U;
+        return 0xFFFFFFFFUL;
     }
     return s_wake_home_sec[s_wake_home_idx];
 }
@@ -371,7 +382,7 @@ menu_page_t menu_page_sleep_wake, menu_page_system, menu_page_factory_option;
 menu_page_t menu_page_factory_unlock, menu_page_factory_locked, menu_page_transport, menu_page_transport_denied;
 menu_page_t menu_page_sos, menu_page_screen_test_confirm, menu_page_accel_calibrate;
 menu_page_t menu_page_status;      /* ui_task 用 &menu_page_status 判断当前页 */
-menu_page_t menu_page_status_battery, menu_page_status_accel, menu_page_status_timer, menu_page_status_fault;
+menu_page_t menu_page_status_battery, menu_page_status_accel, menu_page_status_timer, menu_page_status_fault, menu_page_status_system;
 menu_page_t menu_page_protocol1, menu_page_protocol2, menu_page_powerlimit, menu_page_auto_output_off;
 menu_page_t menu_page_tools, menu_page_about;
 
@@ -392,12 +403,19 @@ MENU_PAGE_("Display", menu_page_display, menu_items_display);
 /* ==================== 休眠与唤醒页（Sleep & Wake，三级） ====================
  * Pickup/Motion Wake 控制DeepSleep时SC7A20是否保留25Hz采样；
  * Home Delay控制一次DeepSleep持续多久后，唤醒先显示主屏而保留原菜单现场。 */
+/* UI只请求休眠，PM控制器决定何时安全进入DeepSleep（现有阻止位仍有效）。 */
+static void sleep_now_apply(menu_item_t *it)
+{
+    (void)it;
+    pm_api_force_sleep();
+}
 static const menu_item_t menu_items_sleep_wake[] = {
     MENU_ITEM_BACK_("Return"),
     MENU_ITEM_ENUM_("Auto Sleep", &s_sleep_idx, s_sleep_opts, 9, sleep_apply),
     MENU_ITEM_TOGGLE_("Pickup Wake", &SC7A20_AlgoConfig.pickup_wake, "On", "Off", NULL),
     MENU_ITEM_TOGGLE_("Motion Wake", &SC7A20_AlgoConfig.motion_wake, "On", "Off", NULL),
-    MENU_ITEM_ENUM_("Home Delay", &s_wake_home_idx, s_wake_home_opts, 5, NULL),
+    MENU_ITEM_ENUM_("Home Delay", &s_wake_home_idx, s_wake_home_opts, 8, NULL),
+    MENU_ITEM_ACTION_("Sleep Now", sleep_now_apply),
 };
 MENU_PAGE_("Sleep & Wake", menu_page_sleep_wake, menu_items_sleep_wake);
 
@@ -544,12 +562,21 @@ static void auto_off_apply(menu_item_t *it)
 static const char * const s_auto_off_opts[] = {
     "5s", "10s", "30s", "1 min", "5 min", "15 min", "30 min", "Disabled"
 };
+/* 三个开关映射0x11F PORTQC：只限制快充，5V端口仍可能正常工作。 */
+static void port_fast_apply(menu_item_t *it)
+{
+    (void)it;
+    SW6306_AlgoRequestPortFastChargeApply();
+}
 static const menu_item_t menu_items_auto_output_off[] = {
     MENU_ITEM_BACK_("Return"),
+    MENU_ITEM_TOGGLE_("C1 Input Fast", &SW6306_PortC1InFast, "On", "Off", port_fast_apply),
+    MENU_ITEM_TOGGLE_("C1 Output Fast", &SW6306_PortC1OutFast, "On", "Off", port_fast_apply),
+    MENU_ITEM_TOGGLE_("A1 Output Fast", &SW6306_PortA1OutFast, "On", "Off", port_fast_apply),
     MENU_ITEM_ENUM_("Idle Timeout", &SW6306_AutoOffTimeIndex, s_auto_off_opts, 8, auto_off_apply),
     MENU_ITEM_VALUE_("Idle Threshold", &SW6306_AutoOffThreshold_mA, 0, 100, 4, "mA", auto_off_apply),
 };
-MENU_PAGE_("Auto Output Off", menu_page_auto_output_off, menu_items_auto_output_off);
+MENU_PAGE_("Port Settings", menu_page_auto_output_off, menu_items_auto_output_off);
 
 /* ==================== PowerBank 页（功率设置 → 自动关闭 → 协议组1/2） ====================
  * Battery / SW6306 两个子页已删除：
@@ -559,7 +586,7 @@ MENU_PAGE_("Auto Output Off", menu_page_auto_output_off, menu_items_auto_output_
 static const menu_item_t menu_items_powerbank[] = {
     MENU_ITEM_BACK_("Return"),
     MENU_ITEM_PAGE_("PowerLimit", &menu_page_powerlimit),
-    MENU_ITEM_PAGE_("Auto Output Off", &menu_page_auto_output_off),
+    MENU_ITEM_PAGE_("Port Settings", &menu_page_auto_output_off),
     MENU_ITEM_PAGE_("Protocol#1", &menu_page_protocol1),
     MENU_ITEM_PAGE_("Protocol#2", &menu_page_protocol2),
 };
@@ -724,6 +751,8 @@ static char menu_status_learn[24];       /* 容量学习状态 */
 static char menu_status_fault_line[24] = "NO FAULT";
 static char menu_status_fault_reason[24] = "Last: None";
 static char menu_status_fault_count[24] = "Count: 0";
+static char menu_status_vcc[24] = "VCC: --";
+static char menu_status_mcutemp[24] = "MCU Temp: --";
 static char menu_status_accel_x[20], menu_status_accel_y[20], menu_status_accel_z[20];
 static char menu_status_accel_temp[24];  /* SC7A20 on-chip temperature ADC raw code */
 static char menu_status_time[16];        /* 时分秒 */
@@ -771,12 +800,21 @@ static const menu_item_t menu_items_status_fault[] = {
 };
 MENU_PAGE_("Fault", menu_page_status_fault, menu_items_status_fault);
 
+/* 系统信息页仅消费load_task每秒采样的内部ADC RAM镜像。 */
+static const menu_item_t menu_items_status_system[] = {
+    MENU_ITEM_BACK_("Return"),
+    MENU_ITEM_INFO_(menu_status_vcc),
+    MENU_ITEM_INFO_(menu_status_mcutemp),
+};
+MENU_PAGE_("System", menu_page_status_system, menu_items_status_system);
+
 static const menu_item_t menu_items_status[] = {
     MENU_ITEM_BACK_("Return"),
     MENU_ITEM_PAGE_("Battery", &menu_page_status_battery),
     MENU_ITEM_PAGE_("Accelerator", &menu_page_status_accel),
     MENU_ITEM_PAGE_("Timer", &menu_page_status_timer),
     MENU_ITEM_PAGE_("Fault", &menu_page_status_fault),
+    MENU_ITEM_PAGE_("System", &menu_page_status_system),
 };
 MENU_PAGE_("Status", menu_page_status, menu_items_status);
 
@@ -786,6 +824,22 @@ void menu_status_refresh(void)
 {
     sw6306_fault_view_t fault;
     SW6306_AlgoGetFaultView(&fault);
+    {
+        uint16_t mv = 0U;
+        int16_t temp_dC = 0;
+        if (mcu_adc_read_cached(&mv, &temp_dC)) {
+            uint16_t td = (uint16_t)(temp_dC < 0 ? -temp_dC : temp_dC);
+            mini_snprintf(menu_status_vcc, sizeof(menu_status_vcc),
+                          "VCC: %lu.%03luV", (unsigned long)(mv / 1000U),
+                          (unsigned long)(mv % 1000U));
+            mini_snprintf(menu_status_mcutemp, sizeof(menu_status_mcutemp),
+                          "MCU: %s%lu.%01lu°C", temp_dC < 0 ? "-" : "",
+                          (unsigned long)(td / 10U), (unsigned long)(td % 10U));
+        } else {
+            mini_snprintf(menu_status_vcc, sizeof(menu_status_vcc), "VCC: --");
+            mini_snprintf(menu_status_mcutemp, sizeof(menu_status_mcutemp), "MCU: --");
+        }
+    }
     if (fault.code == 0U) {
         mini_snprintf(menu_status_fault_line, sizeof(menu_status_fault_line), "NO FAULT");
         mini_snprintf(menu_status_fault_reason, sizeof(menu_status_fault_reason), "Last: None");

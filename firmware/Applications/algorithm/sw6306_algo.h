@@ -51,6 +51,8 @@ extern uint16_t SW6306_LowCurrentThreshold_mA;
 /* 软件整机空载全关为可选回退机制，默认禁用；优先A1硬件空载检测。 */
 extern int32_t SW6306_AutoOffTimeIndex;
 extern int32_t SW6306_AutoOffThreshold_mA;
+/* 端口快充能力（PORTQC）：不能用于断开5V，1=允许快充。 */
+extern uint8_t SW6306_PortC1InFast, SW6306_PortC1OutFast, SW6306_PortA1OutFast;
 void SW6306_AlgoResetAutoOffTimer(void);
 typedef enum {
     SW6306_SPECIAL_NONE = 0,
@@ -98,6 +100,7 @@ void SW6306_AlgoRequestProtocolApply(void);
 void SW6306_AlgoRequestPPSBroadcast(void);
 void SW6306_AlgoRequestUFCSBroadcast(void);
 void SW6306_AlgoRequestPowerApply(void);
+void SW6306_AlgoRequestPortFastChargeApply(void);
 void SW6306_AlgoRequestRecordFactoryCapacity(void);
 void SW6306_AlgoRequestReinit(void);
 void SW6306_AlgoRequestSpecialToggle(void);

@@ -204,8 +204,7 @@ void wk_periph_clock_config(void)
   /* enable usart1 periph clock */
   crm_periph_clock_enable(CRM_USART1_PERIPH_CLOCK, TRUE);
 
-  /* enable adc1 periph clock */
-  crm_periph_clock_enable(CRM_ADC1_PERIPH_CLOCK, TRUE);
+  /* ADC1时钟由load_task内的MCU测量服务按需开启。 */
 
   /* enable scfg periph clock */
   crm_periph_clock_enable(CRM_SCFG_PERIPH_CLOCK, TRUE);
@@ -538,7 +537,7 @@ void wk_adc1_init(void)
   adc_resolution_set(ADC1, ADC_RESOLUTION_12B);
 
   /* adc_ordinary_conversionmode---------------------------------------------------- */
-  adc_ordinary_channel_set(ADC1, ADC_CHANNEL_16, 1, ADC_SAMPLETIME_92_5);
+  adc_ordinary_channel_set(ADC1, ADC_CHANNEL_17, 1, ADC_SAMPLETIME_92_5);
 
   /* When "ADC_ORDINARY_TRIG_SOFTWARE" is selected, user can only use software trigger. \
   The software trigger function is adc_ordinary_software_trigger_enable(ADCx, TRUE); */

@@ -227,7 +227,7 @@ static void pm_at32_deepsleep(void *ctx)
     /* ⑦ 恢复外设时钟（与休眠前关闭的逐一对应） */
     crm_periph_clock_enable(CRM_DMA1_PERIPH_CLOCK, TRUE);
     crm_periph_clock_enable(CRM_TMR1_PERIPH_CLOCK, TRUE);
-    crm_periph_clock_enable(CRM_ADC1_PERIPH_CLOCK, TRUE);
+    /* ADC1由load_task按需启用，不在唤醒时恢复常开。 */
     crm_periph_clock_enable(CRM_SPI1_PERIPH_CLOCK, TRUE);
     crm_periph_clock_enable(CRM_SPI3_PERIPH_CLOCK, TRUE);
     crm_periph_clock_enable(CRM_CRC_PERIPH_CLOCK, TRUE);
@@ -238,11 +238,8 @@ static void pm_at32_deepsleep(void *ctx)
      * 再开启 tick 与 RTOS 调度——否则唤醒后第一句 printf / 第一次刷屏会发不出去。 */
     pm_sleep_pins_restore();
 
-    /* 唤醒后重新使能 ADC1（含内部温度传感器/VREFINT）并做一次完整校准。
-     * 睡前这三样都被关掉了；不复位重配就只是"打开"，校准系数会失效。
-     * wk_adc1_init() 就是 WorkBench 生成的完整初始化（reset → 公共配置 → 通道 →
-     * enable → 等 RDY → 校准开始/等待），直接复用，避免第二份实现。 */
-    wk_adc1_init();
+    /* 不在PM恢复时重新开启ADC1：只有Status/System页采样请求会在
+     * load_task上电并校准，采样结束立即关闭。 */
 
     SysTick->CTRL |= (uint32_t)SysTick_CTRL_TICKINT_Msk;
     xTaskResumeAll();

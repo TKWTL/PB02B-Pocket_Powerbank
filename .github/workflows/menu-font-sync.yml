@@ -1,0 +1,51 @@
+name: Verify and sync Fusion Pixel menu subset
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firmware/Applications/menu/menu_pages.c'
+      - 'tools/fonts/build_lvgl_font.py'
+      - '.github/workflows/menu-font-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download official Fusion Pixel 12px proportional BDF
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            "https://github.com/TakWolf/fusion-pixel-font/releases/download/2026.10.25/fusion-pixel-font-12px-proportional-bdf-v2026.10.25.zip" \
+            -o /tmp/fusion-pixel.zip
+          mkdir -p /tmp/fusion-pixel-bdf
+          unzip -q /tmp/fusion-pixel.zip -d /tmp/fusion-pixel-bdf
+          found="$(find /tmp/fusion-pixel-bdf -type f \\( -name 'fusion-pixel-12px-proportional-zh_hans.bdf' -o -name 'fusion-pixel-12px-proportional-zh_hans.bdf.gz' \\) -print -quit)"
+          test -n "$found" || { echo "Official zh_hans BDF not found" >&2; exit 1; }
+          if [[ "$found" == *.gz ]]; then gzip -dc "$found" > /tmp/menu-font.bdf
+          else cp "$found" /tmp/menu-font.bdf; fi
+      - name: Regenerate exact upstream glyphs and check full menu coverage
+        run: |
+          python3 tools/fonts/build_lvgl_font.py \
+            --bdf /tmp/menu-font.bdf \
+            --source firmware/Applications/menu/menu_pages.c \
+            --output firmware/Applications/fonts/lv_font_menucn_12.c
+      - name: Commit font update only when changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet -- firmware/Applications/fonts/lv_font_menucn_12.c; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add firmware/Applications/fonts/lv_font_menucn_12.c
+            git commit -m "build(font): sync exact Fusion Pixel 12px zh-Hans menu glyphs"
+            git push
+          else
+            echo "Font already matches official BDF"
+          fi

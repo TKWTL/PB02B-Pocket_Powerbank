@@ -173,8 +173,7 @@ int main(void)
   /* init gpio function. */
   wk_gpio_config();
 
-  /* init adc1 function. */
-  wk_adc1_init();
+  /* ADC1改为Status/System页按需采样，启动时绝不使能模拟模块。 */
 
   /* init dma1 channel1 */
   wk_dma1_channel1_init();

@@ -11,7 +11,8 @@
 #include "menu_ui.h"
 #include "menu_pages.h"
 #include "functions.h"   /* 主界面创建/显示 + 一次性动作函数 */
-#include "algorithm/sw6306_algo.h" /* 运输请求及故障事件的RAM接口 */
+#include "algorithm/sw6306_algo.h" /* SW6306 RAM接口 */
+#include "framework/mcu_adc.h" /* ADC按需请求（不在UI中操作硬件） */
 
 static lv_obj_t *s_menu_scr;   /* 菜单屏（主界面/应用屏由菜单应用模型统一管理） */
 static uint8_t s_orientation_lock;
@@ -67,7 +68,8 @@ static void status_timer_cb(lv_timer_t *t)
         pg != &menu_page_status_battery &&
         pg != &menu_page_status_accel &&
         pg != &menu_page_status_timer &&
-        pg != &menu_page_status_fault) {
+        pg != &menu_page_status_fault &&
+        pg != &menu_page_status_system) {
         return;
     }
 
@@ -353,6 +355,10 @@ static void ui_loop(void)
 {
     app_action_t action;
 
+    /* 只在系统信息页打开ADC周期采样请求；每次sample后硬件立即断电。 */
+    mcu_adc_set_active(menu_is_active() &&
+        menu_current_page() == &menu_page_status_system ? 1U : 0U);
+
     /* Consume key edges but freeze all user navigation during EXIT/ENTER. */
     if (menu_ui_transition_busy()) {
         (void)ui_scan_action();
@@ -448,7 +454,7 @@ void ui_task_func(void *pvParameters)
 
             /* 长时间DeepSleep后表现成“锁屏”：仅临时显示主屏，不清原菜单的
              * page/stack/index；用户按MENU/PREV即可回到睡前页面。 */
-            if (menu_is_active() && wake_home_sec != 0U &&
+            if (menu_is_active() && wake_home_sec != 0xFFFFFFFFUL &&
                 pm_api_get_last_sleep_seconds() >= wake_home_sec) {
                 s_wake_main_no_anim = 1U;
                 menu_show_main_locked();
