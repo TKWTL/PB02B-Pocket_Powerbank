@@ -338,7 +338,7 @@
     </PINInfo>
     <ProjectInfomation>
         <ProjectName>Pocket_PowerBank</ProjectName>
-        <ProjectLocation>E:/Embedded_Full_ENG_Path/Pocket_PowerBank/firmware</ProjectLocation>
+        <ProjectLocation>E:/Embedded_Full_ENG_Path/PB02B-Pocket_PowerBank/firmware</ProjectLocation>
         <ToolchainIDE>MDK_V5</ToolchainIDE>
         <ARMCompiler>1</ARMCompiler>
         <BackupCode>false</BackupCode>
