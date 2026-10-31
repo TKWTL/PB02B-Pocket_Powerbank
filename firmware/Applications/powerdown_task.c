@@ -43,6 +43,14 @@ uint8_t pm_api_transport_mode_requested(void)
     return s_transport_req;
 }
 
+void pm_api_cancel_transport_mode(void)
+{
+    taskENTER_CRITICAL();
+    s_transport_req = 0U;
+    s_pm_refresh_req = 1U; /* 下一轮重建正常RUN倒计时 */
+    taskEXIT_CRITICAL();
+}
+
 uint32_t pm_api_get_last_sleep_seconds(void)
 {
     return s_last_sleep_seconds;

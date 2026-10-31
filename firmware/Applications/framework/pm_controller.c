@@ -200,7 +200,12 @@ pm_power_state_t pm_controller_step(pm_controller_t *ctx)
     if ((ctx->state == PM_STATE_SLEEP_PREPARE && next == PM_STATE_DEEPSLEEP) ||
         (next == PM_STATE_STANDBY && ctx->state != PM_STATE_STANDBY)) {
         if (!pm_quiesce_bus()) {
-            /* Never enter power-off with an active/broken transaction. */
+            /* Bus drain failed: cancel a latched transport request, not just this state step. */
+            if (next == PM_STATE_STANDBY && ctx->force_standby != 0U) {
+                ctx->force_standby = 0U;
+                pm_api_cancel_transport_mode();
+                SW6306_AlgoNotifyTransportDenied();
+            }
             ctx->ui_active = 1U;
             pm_sleep_timer_refresh();
             next = PM_STATE_RUN;
@@ -209,6 +214,7 @@ pm_power_state_t pm_controller_step(pm_controller_t *ctx)
     if (next == PM_STATE_STANDBY && ctx->force_standby != 0U &&
         SW6306_AlgoTransportFinalCheck() == 0U) {
         ctx->force_standby = 0U;
+        pm_api_cancel_transport_mode();
         ctx->ui_active = 1U;
         pm_sleep_timer_refresh();
         pm_api_sleep_gate_set(0U);

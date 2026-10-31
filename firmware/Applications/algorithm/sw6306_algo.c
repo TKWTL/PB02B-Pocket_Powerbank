@@ -845,6 +845,11 @@ void SW6306_AlgoRequestTransportMode(void)
 
 /* PM已阻止普通I2C工作线程且排空总线后的最后安全复核；
  * 检测到插拔、WLED活动或I2C读取失败时不得进入Standby。 */
+void SW6306_AlgoNotifyTransportDenied(void)
+{
+    s_transport_denied = 1U; /* PM无法排空总线时不可再访问SW6306，仅通知UI */
+}
+
 uint8_t SW6306_AlgoTransportFinalCheck(void)
 {
     if (WLED_AlgoMeterBusy() != 0U || SW6306_TransportPortsIdle() == 0U) {

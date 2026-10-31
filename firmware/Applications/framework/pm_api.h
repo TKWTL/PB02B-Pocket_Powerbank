@@ -18,6 +18,7 @@ void pm_api_refresh_idle(void);
 void pm_api_force_sleep(void);          /* 手动休眠：立即进入休眠流程 */
 void pm_api_enter_transport_mode(void); /* 运输模式：最低功耗Standby，仅PA0/WKUP1唤醒 */
 uint8_t pm_api_transport_mode_requested(void);
+void pm_api_cancel_transport_mode(void); /* 安全检查拒绝时撤销锁存请求，恢复RUN */
 uint32_t pm_api_get_last_sleep_seconds(void); /* 最近一次DeepSleep实际RTC时长；RTC无效返回0 */
 void pm_api_set_sleep_timeout(int timeout_sec); /* 0=永久不休眠(No Auto Sleep)，>0=超时秒数 */
 void pm_api_set_sleep_block(uint8_t mask, uint8_t enable);
