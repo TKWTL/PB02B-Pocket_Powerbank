@@ -25,13 +25,18 @@ extern C {
 /*包含自己的I2C驱动库*/
 #include "bsp_i2c.h"
         
+/* SW6306将0x000~0x0FF与0x100~0x1FF映射到同一个8位I2C寄存器地址空间，
+ * 由0x24[7]/0x1FF寄存器切换页。驱动内部保留16位逻辑地址，用于判断页；
+ * 只有最终提交I2C事务时才显式提取低8位（0x1FF在高页对应总线地址0xFF）。 */
+#define SW6306_I2C_REG8(reg)    ((uint8_t)((uint16_t)(reg) & 0x00FFU))
+
 //外部库给出的I2C读写函数
-#ifdef SW6306_USE_PROTOTHREAD   //允许挂起    
-    #define SW6306_I2C_Transmit(addr,reg,pdata,len,pflag)   ASYNC_I2C_Transmit(addr,reg,pdata,len,0,pflag)
-    #define SW6306_I2C_Receive(addr,reg,pdata,len,pflag)    ASYNC_I2C_Receive(addr,reg,pdata,len,0,pflag)    
+#ifdef SW6306_USE_PROTOTHREAD   //允许挂起
+    #define SW6306_I2C_Transmit(addr,reg,pdata,len,pflag)   ASYNC_I2C_Transmit(addr,SW6306_I2C_REG8(reg),pdata,len,0,pflag)
+    #define SW6306_I2C_Receive(addr,reg,pdata,len,pflag)    ASYNC_I2C_Receive(addr,SW6306_I2C_REG8(reg),pdata,len,0,pflag)
 #else                           //不允许挂起
-    #define SW6306_I2C_Transmit(addr,reg,pdata,len,pflag)   I2C_RegWrite(addr, reg, pdata, len)
-    #define SW6306_I2C_Receive(addr,reg,pdata,len,pflag)    I2C_RegRead(addr, reg, pdata, len)
+    #define SW6306_I2C_Transmit(addr,reg,pdata,len,pflag)   I2C_RegWrite(addr, SW6306_I2C_REG8(reg), pdata, len)
+    #define SW6306_I2C_Receive(addr,reg,pdata,len,pflag)    I2C_RegRead(addr, SW6306_I2C_REG8(reg), pdata, len)
 #endif
 
 
