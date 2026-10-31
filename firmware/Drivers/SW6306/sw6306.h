@@ -1419,6 +1419,9 @@ SW6306_RET SW6306_CapacityLearningSet(SW6306_ARGS(uint8_t enable));
 SW6306_RET SW6306_CapacityLearningRearm(SW6306_NOARG);
 //状态操作
 SW6306_RET SW6306_ForceOff(SW6306_NOARG);     //强制关闭放电并休眠
+#ifndef SW6306_USE_PROTOTHREAD
+uint8_t SW6306_WakeAndUnlock(void); /* 有限等待、版本寄存器读回与I2C错误反馈 */
+#endif
 SW6306_RET SW6306_Unlock(SW6306_NOARG);       //无短按事件：解除低功耗并解锁寄存器写入
 SW6306_RET SW6306_Click(SW6306_NOARG);        //触发单击事件
 SW6306_RET SW6306_LPSet(SW6306_NOARG);        //打开低功耗

@@ -3,6 +3,7 @@
 #include "pm_device.h"
 #include "pm_sleep_timer.h"
 #include "pm_api.h"
+#include "algorithm/sw6306_algo.h"
 #include "FreeRTOS.h"
 #include "task.h"
 
@@ -204,6 +205,14 @@ pm_power_state_t pm_controller_step(pm_controller_t *ctx)
             pm_sleep_timer_refresh();
             next = PM_STATE_RUN;
         }
+    }
+    if (next == PM_STATE_STANDBY && ctx->force_standby != 0U &&
+        SW6306_AlgoTransportFinalCheck() == 0U) {
+        ctx->force_standby = 0U;
+        ctx->ui_active = 1U;
+        pm_sleep_timer_refresh();
+        pm_api_sleep_gate_set(0U);
+        next = PM_STATE_RUN;
     }
     pm_handle_transition(ctx->state, next);
 

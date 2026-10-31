@@ -636,6 +636,24 @@ void SW6306_AlgoProcessCommands(void)
         }
     }
 
+    /* 厂商不允许在快充会话中直接关闭协议/端口快充。将变更保留至端口真正空闲。
+     * 轮询限速至500ms，避免连接期间100ms周期持续发I2C；配置请求会自动合并。 */
+    if (cmd & (SW6306_CMD_PROTOCOL | SW6306_CMD_PORT_QC)) {
+        static TickType_t s_last_safe_apply_check;
+        TickType_t now = xTaskGetTickCount();
+        uint16_t pending = cmd & (SW6306_CMD_PROTOCOL | SW6306_CMD_PORT_QC);
+        if ((uint32_t)(now - s_last_safe_apply_check) < pdMS_TO_TICKS(500U)) {
+            retry |= pending;
+            cmd &= (uint16_t)~pending;
+        } else {
+            s_last_safe_apply_check = now;
+            if (SW6306_TransportPortsIdle() == 0U) {
+                retry |= pending;
+                cmd &= (uint16_t)~pending;
+            }
+        }
+    }
+
     if (cmd & SW6306_CMD_PROTOCOL) {
         SW6306_ProtocolEnable(SW6306_PROTO_PD,    SW6306_PROTO_DIR_SOURCE, SW6306_AlgoConfig.pd_out);
         SW6306_ProtocolEnable(SW6306_PROTO_PD,    SW6306_PROTO_DIR_SINK,   SW6306_AlgoConfig.pd_in);
@@ -787,6 +805,17 @@ void SW6306_AlgoRequestTransportMode(void)
     sw6306_algo_set_command(SW6306_CMD_TRANSPORT);
 }
 
+/* PM已阻止普通I2C工作线程且排空总线后的最后安全复核；
+ * 检测到插拔、WLED活动或I2C读取失败时不得进入Standby。 */
+uint8_t SW6306_AlgoTransportFinalCheck(void)
+{
+    if (WLED_AlgoMeterBusy() != 0U || SW6306_TransportPortsIdle() == 0U) {
+        s_transport_denied = 1U;
+        return 0U;
+    }
+    return 1U;
+}
+
 uint8_t SW6306_AlgoTakeTransportDenied(void)
 {
     uint8_t denied;
@@ -873,7 +902,8 @@ void SW6306_AlgoPmResume(void *ctx)
 {
     (void)ctx;
 
-    SW6306_Unlock();
+    /* 失败不能拿旧initialized镜像继续轮询；由SW6306_task再尝试Init。 */
+    if (SW6306_WakeAndUnlock() == 0U) return;
     if (SW6306_IsInitialized() == 0U) {
         SW6306_Init();
         if (SW6306_IsInitialized() != 0U) {

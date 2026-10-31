@@ -1,5 +1,7 @@
 #include "sw6306.h"
 #include <math.h>
+#include "FreeRTOS.h"
+#include "task.h"
 
 /* initialized 默认 0（零初始化，.bss）：MCU 复位后即视为未初始化，
  * SW6306_task 会对 SW6306 执行一次 ForceOff+Init（芯片复位后重置）。
@@ -81,12 +83,22 @@ SW6306_RET SW6306_RegsetSwitch(SW6306_ARGS(uint16_t regset))
     if(regset > 0xFFU)
     {
         if(SW6306_Status.sendbuf[0] == 0x01)//需要读写高位地址但目前是低地址
+        {
             SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_WREN,0x81);
+#ifndef SW6306_USE_PROTOTHREAD
+            vTaskDelay(pdMS_TO_TICKS(1U)); /* >=50us */
+#endif
+        }
     }
     else
     {
         if(SW6306_Status.sendbuf[0] != 0x01)//需要读写低位地址但目前是高地址
+        {
             SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_LREGSET,0x00);
+#ifndef SW6306_USE_PROTOTHREAD
+            vTaskDelay(pdMS_TO_TICKS(1U)); /* >=50us */
+#endif
+        }
     }
     SW6306_FUNC_END;
 }
@@ -691,29 +703,78 @@ SW6306_RET SW6306_ForceOff(SW6306_NOARG)
 
 /* PM 唤醒只需要写 0x23=1 退出低功耗并解除寄存器写限制。
  * 不能写 0x20 CLICK：它会模拟短按，按 KEY1_A1 配置在空口启动 5V 输出。 */
+/* SW6306V:0x23[7:1]为保留位，按V版手册写0x01而非通用SW630x的0x81。
+ * 关机LP下普通版本寄存器不可读取：必须先退出LP，再切回低页并探测。
+ * 注意这里由外层持有I2C互斥锁；任何失败都不宣布写权限成功。 */
+#ifndef SW6306_USE_PROTOTHREAD
+static uint8_t sw6306_wake_unlock_locked(void)
+{
+    uint8_t data, rev = 0U, i;
+    const uint8_t unlock_seq[3] = {0x20U, 0x40U, 0x80U};
+    SW6306_Status.unlocked = 0U;
+    data = SW6306_LPSET_EN;
+    if (SW6306_I2C_Transmit(SW6306_I2C_ADDR, SW6306_CTRG_LPSET,
+                            &data, 1U, &SW6306_Status.flag) != I2C_OK) return 0U;
+    vTaskDelay(pdMS_TO_TICKS(2U));
+    if (SW6306_I2C_Receive(SW6306_I2C_ADDR, SW6306_STRG_REV,
+                           &rev, 1U, &SW6306_Status.flag) != I2C_OK) return 0U;
+    if (rev != 0x01U) {
+    data = 0U;
+    if (SW6306_I2C_Transmit(SW6306_I2C_ADDR, SW6306_CTRG_LREGSET,
+                            &data, 1U, &SW6306_Status.flag) != I2C_OK) return 0U;
+    /* 手册要求换页后至少50us；1个RTOS tick提供保守余量。 */
+    vTaskDelay(pdMS_TO_TICKS(1U));
+    }
+    if (SW6306_I2C_Receive(SW6306_I2C_ADDR, SW6306_STRG_REV,
+                           &rev, 1U, &SW6306_Status.flag) != I2C_OK ||
+        (rev & 0x0FU) == 0U) return 0U;
+    for (i = 0U; i < 3U; i++) {
+        data = unlock_seq[i];
+        if (SW6306_I2C_Transmit(SW6306_I2C_ADDR, SW6306_CTRG_WREN,
+                                &data, 1U, &SW6306_Status.flag) != I2C_OK) return 0U;
+    }
+    SW6306_Status.unlocked = 1U;
+    return 1U;
+}
+
+uint8_t SW6306_WakeAndUnlock(void)
+{
+    uint8_t ok;
+    xSemaphoreTake(mutex_i2c_handle, portMAX_DELAY);
+    ok = sw6306_wake_unlock_locked();
+    if (!ok) SW6306_Status.initialized = 0U;
+    xSemaphoreGive(mutex_i2c_handle);
+    return ok;
+}
+#endif
+
 SW6306_RET SW6306_Unlock(SW6306_NOARG)
 {
     SW6306_FUNC_BEGIN;
     SW6306_MUTEX_TAKE;
-    SW6306_SPAWN_ARGS(SW6306_RegsetSwitch, SW6306_CTRG_LPSET);//切换低地址
+#ifndef SW6306_USE_PROTOTHREAD
+    if (!sw6306_wake_unlock_locked()) SW6306_Status.initialized = 0U;
+#else
     SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_LPSET, SW6306_LPSET_EN);
     SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_WREN, 0x20);
     SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_WREN, 0x40);
     SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_WREN, 0x80);
+#endif
     SW6306_MUTEX_GIVE;
     SW6306_FUNC_END;
 }
-/* 仅退出LP并解锁寄存器；功率设置和协议更新不得隐式触发短按、打开空A1。 */
+
 SW6306_RET SW6306_Unlock_Nolock(SW6306_NOARG)
 {
     SW6306_FUNC_BEGIN;
-    //SW6306_MUTEX_TAKE;
-    SW6306_SPAWN_ARGS(SW6306_RegsetSwitch, SW6306_CTRG_LPSET);//切换低地址
+#ifndef SW6306_USE_PROTOTHREAD
+    if (!sw6306_wake_unlock_locked()) SW6306_Status.initialized = 0U;
+#else
     SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_LPSET, SW6306_LPSET_EN);
     SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_WREN, 0x20);
     SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_WREN, 0x40);
     SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_WREN, 0x80);
-    //SW6306_MUTEX_GIVE;
+#endif
     SW6306_FUNC_END;
 }
 
@@ -910,6 +971,14 @@ SW6306_RET SW6306_SetLowCurrentMode(SW6306_ARGS(uint8_t enable))
         SW6306_INDET4_BLUTHREGSET | SW6306_INDET4_BLUTHEN | SW6306_INDET4_BLUTH4H,
         enable ? (SW6306_INDET4_BLUTHREGSET | SW6306_INDET4_BLUTHEN |
                   SW6306_INDET4_BLUTH4H) : 0U);
+    /* 0x11B仅允许/配置小电流模式；真正进入退出必须写0x28[1]。
+     * 清零后置位可重启芯片侧低电流计时；退出时仅清零。 */
+    SW6306_SPAWN_ARGS(SW6306_RegsetSwitch, SW6306_CTRG_MODE);
+    SW6306_SPAWN_ARGS(SW6306_ByteModify, SW6306_CTRG_MODE, SW6306_MODE_BLUTHON, 0U);
+    if (enable != 0U) {
+        SW6306_SPAWN_ARGS(SW6306_ByteModify, SW6306_CTRG_MODE,
+                          SW6306_MODE_BLUTHON, SW6306_MODE_BLUTHON);
+    }
     SW6306_MUTEX_GIVE;
     SW6306_FUNC_END;
 }
@@ -955,7 +1024,8 @@ SW6306_RET SW6306_LPSet(SW6306_NOARG)
     SW6306_FUNC_BEGIN;
     SW6306_MUTEX_TAKE;
     SW6306_SPAWN_ARGS(SW6306_RegsetSwitch, SW6306_CTRG_LPSET);//切换低地址
-    SW6306_SPAWN_ARGS(SW6306_ByteModify, SW6306_CTRG_LPSET, SW6306_LPSET_EN, 0x00);
+    SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_LPSET, 0x00U);
+    SW6306_Status.unlocked = 0U;
     SW6306_MUTEX_GIVE;
     SW6306_FUNC_END;
 }
@@ -1281,6 +1351,13 @@ SW6306_RET SW6306_Init(SW6306_NOARG)
     SW6306_MUTEX_TAKE;
     //唤醒并解锁寄存器写入；初始化不能模拟短按而在空口开启A1
     SW6306_SPAWN_NOARG(SW6306_Unlock_Nolock);
+#ifndef SW6306_USE_PROTOTHREAD
+    if (!SW6306_Status.unlocked) {
+        SW6306_Status.initialized = 0U;
+        SW6306_MUTEX_GIVE;
+        return;
+    }
+#endif
     //使能UVLO、充放电异常与场景变化中断（插拔/唤醒事件可经IRQ脚发脉冲唤醒MCU）
     //注意：硬件KEY引脚未引出，无需使能按键事件中断（SW6306_KEY_INT_EN）
     SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_INT_EN, SW6306_UVLO_INT_EN|SW6306_CHGERR_INT_EN|SW6306_DISCHGERR_INT_EN|SW6306_SCENE_INT_EN);

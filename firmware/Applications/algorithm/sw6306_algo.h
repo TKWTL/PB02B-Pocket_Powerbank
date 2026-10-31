@@ -105,7 +105,8 @@ void SW6306_AlgoRequestRecordFactoryCapacity(void);
 void SW6306_AlgoRequestReinit(void);
 void SW6306_AlgoRequestSpecialToggle(void);
 void SW6306_AlgoRequestTransportMode(void); /* 异步检查端口后才提交PM运输请求 */
-uint8_t SW6306_AlgoTakeTransportDenied(void); /* UI取拒绝事件一次 */
+uint8_t SW6306_AlgoTakeTransportDenied(void);
+uint8_t SW6306_AlgoTransportFinalCheck(void); /* PM总线排空后对运输模式作最终复核 */ /* UI取拒绝事件一次 */
 void SW6306_AlgoRequestC1Insert(void);
 void SW6306_AlgoRequestC1Remove(void);
 void SW6306_AlgoRequestForceOff(void);
