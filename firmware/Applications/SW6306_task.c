@@ -9,7 +9,8 @@ static void sw6306_update_sleep_block(void)
 
     /* A low-current idle load must not put the MCU/SW6306 to sleep. */
     pm_api_set_sleep_block(PM_BLOCK_LOW_CURRENT,
-        SW6306_AlgoGetSpecialMode() == SW6306_SPECIAL_LOW_CURRENT);
+        SW6306_AlgoGetSpecialMode() == SW6306_SPECIAL_LOW_CURRENT ||
+        SW6306_IsLowCurrentMode() != 0U);
 
     /* 任意端口通路打开（本硬件真实口：C1/A1；A1 兼作 WLED 假插入口。
      * 假插入与真实负载由 UI 用 BUS 电流区分，见 main_screen.c a1_is_real_load） */

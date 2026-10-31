@@ -63,6 +63,7 @@ static volatile uint8_t s_a1_port_request; /* 0=无,1=A1插入,2=A1拔出; SW630
 static uint8_t s_a1_auto_off = 0xFFU; /* 0/1为已应用值，0xFF强制重配置 */
 static uint32_t s_last_high_load_tick;
 static uint8_t s_slow_stop_count;
+static uint8_t s_lc_verify_pending, s_lc_retry_count;
 
 /* RAM-only parameters; not written to NVM. */
 uint16_t SW6306_LowCurrentThreshold_mA = 80U;
@@ -168,6 +169,7 @@ const char *SW6306_AlgoNoticeText(uint8_t code)
     case 12: return "TEMP LIMIT";
     case 13: return "POWER PROTECT";
     case 100: return "CAP LEARN DONE";
+    case 101: return "LOW CURRENT ERROR";
     default: return "NO FAULT";
     }
 }
@@ -295,10 +297,30 @@ void SW6306_AlgoLoadStep(void)
     case 0U:
         SW6306_ADCLoad();
         break;
-    case 1U:
+    case 1U: {
+        uint32_t before = SW6306_StatusReadSequence();
+        uint8_t expected;
         SW6306_StatusLoad();
+        expected = (s_special_mode == SW6306_SPECIAL_LOW_CURRENT) ? 1U : 0U;
+        if (s_lc_verify_pending != 0U && SW6306_StatusReadSequence() != before) {
+            if ((SW6306_IsLowCurrentMode() != 0U) == (expected != 0U)) {
+                s_lc_verify_pending = 0U;
+                s_lc_retry_count = 0U;
+            } else if (s_lc_retry_count < 2U) {
+                ++s_lc_retry_count;
+                sw6306_algo_set_command(SW6306_CMD_LOW_CURRENT);
+            } else {
+                s_lc_verify_pending = 0U;
+                sw6306_fault_offer_notice(101U, 2U);
+                if (expected != 0U) {
+                    s_special_mode = SW6306_SPECIAL_NONE;
+                    sw6306_algo_set_command(SW6306_CMD_LOW_CURRENT | SW6306_CMD_POWER);
+                }
+            }
+        }
         SW6306_NTCTempLoad();
         break;
+    }
     case 2U:
         SW6306_PortStatusLoad();
         break;
@@ -409,6 +431,7 @@ void SW6306_AlgoInit(void)
     s_a1_auto_off = 0xFFU;
     s_special_toggle_req = 0U;
     s_slow_stop_count = 0U;
+    s_lc_verify_pending = s_lc_retry_count = 0U;
     SW6306_AlgoResetAutoOffTimer();
     s_last_high_load_tick = xTaskGetTickCount();
 
@@ -568,6 +591,7 @@ void SW6306_AlgoService100ms(void)
 
     if (next != s_special_mode) {
         s_special_mode = next;
+        s_lc_verify_pending = s_lc_retry_count = 0U;
         s_slow_stop_count = 0U;
         s_last_high_load_tick = now;
         sw6306_algo_set_command(SW6306_CMD_POWER | SW6306_CMD_LOW_CURRENT);
@@ -695,6 +719,7 @@ void SW6306_AlgoProcessCommands(void)
 
     if (cmd & SW6306_CMD_LOW_CURRENT) {
         SW6306_SetLowCurrentMode(s_special_mode == SW6306_SPECIAL_LOW_CURRENT);
+        s_lc_verify_pending = 1U;
     }
     /* A2/C2 have no connectors: always remove after SW6306 initialization. */
     if (cmd & SW6306_CMD_UNUSED_REMOVE) {
@@ -776,6 +801,7 @@ void SW6306_AlgoOnDriverReinitialized(void)
     s_capacity_cycle = 1U;
     SW6306_AlgoResetAutoOffTimer();
     s_a1_auto_off = 0xFFU;
+    s_lc_verify_pending = s_lc_retry_count = 0U;
     sw6306_algo_set_command(SW6306_CMD_PROTOCOL |
                             SW6306_CMD_POWER |
                             SW6306_CMD_LEARN_ENABLE |
