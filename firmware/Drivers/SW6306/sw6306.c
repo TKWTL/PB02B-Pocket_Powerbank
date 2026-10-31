@@ -86,7 +86,7 @@ SW6306_RET SW6306_RegsetSwitch(SW6306_ARGS(uint16_t regset))
         {
             SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_WREN,0x81);
 #ifndef SW6306_USE_PROTOTHREAD
-            vTaskDelay(pdMS_TO_TICKS(1U)); /* >=50us */
+            vTaskDelay(pdMS_TO_TICKS(2U)); /* >=50us */
 #endif
         }
     }
@@ -96,7 +96,7 @@ SW6306_RET SW6306_RegsetSwitch(SW6306_ARGS(uint16_t regset))
         {
             SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_LREGSET,0x00);
 #ifndef SW6306_USE_PROTOTHREAD
-            vTaskDelay(pdMS_TO_TICKS(1U)); /* >=50us */
+            vTaskDelay(pdMS_TO_TICKS(2U)); /* >=50us */
 #endif
         }
     }
@@ -722,8 +722,8 @@ static uint8_t sw6306_wake_unlock_locked(void)
     data = 0U;
     if (SW6306_I2C_Transmit(SW6306_I2C_ADDR, SW6306_CTRG_LREGSET,
                             &data, 1U, &SW6306_Status.flag) != I2C_OK) return 0U;
-    /* 手册要求换页后至少50us；1个RTOS tick提供保守余量。 */
-    vTaskDelay(pdMS_TO_TICKS(1U));
+    /* 手册要求换页后至少50us；2个tick保证在1kHz时至少等待1ms。 */
+    vTaskDelay(pdMS_TO_TICKS(2U));
     }
     if (SW6306_I2C_Receive(SW6306_I2C_ADDR, SW6306_STRG_REV,
                            &rev, 1U, &SW6306_Status.flag) != I2C_OK ||
