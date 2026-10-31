@@ -216,9 +216,9 @@ static void wled_service_10ms(void)
 
     cmd = WLED_AlgoTakePortCommand();
     if (cmd == WLED_PORT_CMD_A1_INSERT) {
-        SW6306_PortA1Insert();
+        SW6306_AlgoRequestA1PortEvent(1U);
     } else if (cmd == WLED_PORT_CMD_A1_REMOVE) {
-        SW6306_PortA1Remove();
+        SW6306_AlgoRequestA1PortEvent(0U);
     }
 
     if (WLED_AlgoTakePwm(&pwm) != 0U) {

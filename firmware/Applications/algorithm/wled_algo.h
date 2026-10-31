@@ -2,7 +2,7 @@
  * wled_algo.h - WLED application policy
  *
  * UI only sends RAM requests. load_task advances the policy and is the only
- * executor of PWM writes / fake-A1 port events. No I2C is performed here.
+ * executor of PWM writes. A1 port commands are queued to SW6306_task; no I2C here.
  */
 #ifndef WLED_ALGO_H
 #define WLED_ALGO_H
@@ -50,7 +50,7 @@ void WLED_AlgoRequestToggle(void);
 void WLED_AlgoRequestBrightnessStep(int8_t step);
 void WLED_AlgoRequestSOS(uint8_t enable); /* overrides normal light, never restores */
 
-/* load_task only. */
+/* Tick/PWM consumed by load_task; A1 event popped there and queued to SW6306_task. */
 void WLED_AlgoTick10ms(void);
 void WLED_AlgoUpdate500ms(void);
 uint8_t WLED_AlgoTakePwm(uint16_t *pwm);

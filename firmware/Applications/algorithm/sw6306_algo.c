@@ -59,6 +59,7 @@ static volatile uint8_t s_transport_denied;
 static void sw6306_fault_offer_notice(uint8_t code, uint8_t severity);
 static volatile uint8_t s_special_toggle_req;
 static volatile sw6306_special_mode_t s_special_mode;
+static volatile uint8_t s_a1_port_request; /* 0=无,1=A1插入,2=A1拔出; SW6306_task唯一执行者 */
 static uint8_t s_a1_auto_off = 0xFFU; /* 0/1为已应用值，0xFF强制重配置 */
 static uint32_t s_last_high_load_tick;
 static uint8_t s_slow_stop_count;
@@ -404,6 +405,7 @@ void SW6306_AlgoInit(void)
     s_notice_pending = 0U;
     s_fault = (sw6306_fault_view_t){0};
     s_transport_denied = 0U;
+    s_a1_port_request = 0U;
     s_a1_auto_off = 0xFFU;
     s_special_toggle_req = 0U;
     s_slow_stop_count = 0U;
@@ -611,6 +613,7 @@ void SW6306_AlgoProcessCommands(void)
 {
     uint16_t cmd = sw6306_algo_take_commands();
     uint8_t retry = 0U;
+    uint8_t a1_event;
 
     /* 即使无命令，也要根据WLED/低电流模式调整A1硬件空载策略。 */
     if (cmd & SW6306_CMD_REINIT) {
@@ -722,6 +725,15 @@ void SW6306_AlgoProcessCommands(void)
         SW6306_UFCSBroadcast();
     }
 
+    /* load_task仅在10ms节拍发出WLED/用户A1 RAM意图，不直接访问SW6306 I2C。
+     * 此处和其他SW6306端口命令在同一任务串行执行，ForceOff始终最后生效。 */
+    taskENTER_CRITICAL();
+    a1_event = s_a1_port_request;
+    s_a1_port_request = 0U;
+    taskEXIT_CRITICAL();
+    if (a1_event == 1U) SW6306_PortA1Insert();
+    else if (a1_event == 2U) SW6306_PortA1Remove();
+
     if (cmd & (SW6306_CMD_FORCE_OFF | SW6306_CMD_C1_REMOVE | SW6306_CMD_C1_INSERT)) {
         SW6306_AlgoResetAutoOffTimer();
         if (cmd & SW6306_CMD_FORCE_OFF) {
@@ -824,6 +836,13 @@ uint8_t SW6306_AlgoTakeTransportDenied(void)
     s_transport_denied = 0U;
     taskEXIT_CRITICAL();
     return denied;
+}
+
+void SW6306_AlgoRequestA1PortEvent(uint8_t insert)
+{
+    taskENTER_CRITICAL();
+    s_a1_port_request = (insert != 0U) ? 1U : 2U;
+    taskEXIT_CRITICAL();
 }
 
 void SW6306_AlgoRequestC1Insert(void)
