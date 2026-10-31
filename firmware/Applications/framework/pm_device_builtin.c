@@ -269,6 +269,9 @@ static void pm_at32_standby(void *ctx)
     gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
     gpio_init(GPIOB, &gpio_init_struct);
 
+    /* Standby同样隔离LCD控制引脚并主动关闭PA3~PA7供电；已由suspend完成SLPIN。 */
+    pm_sleep_pins_idle();
+
     /* 唯一Standby唤醒源：PA0 = NEXT/PWR = WKUP1，按键拉高唤醒。
      * 显式关闭其它WKUP，避免外部事件把运输模式误唤醒。 */
     gpio_default_para_init(&gpio_init_struct);
@@ -310,8 +313,7 @@ static void pm_gc9d01_resume(void *ctx)
     /* 睡眠期 LCD VDD 已断开，屏内寄存器全部丢失 → 唤醒必须走完整冷启动：
      * 复位 + 全部寄存器配置（二维表）+ 关背光。DISPON 交给 ui_task：
      * 它把首帧写进 GRAM 之后再发 0x29，面板锁存到的第一帧就是新画面。 */
-    GC9D01_HardReset();
-    GC9D01_Init();
+    GC9D01_Init(); /* Init内部已经执行RESET */
     GC9D01_SetBL(0);
 }
 

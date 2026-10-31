@@ -292,17 +292,16 @@ SW6306_RET SW6306_PortStatusLoad(SW6306_NOARG)//更新端口状态镜像寄存�
 }
 /* 运输模式安全门：重新读取实时端口状态；任一读操作失败即拒绝。
  * A口禁止VBUS插拔检测，不能识别所有已插但未供电的被动A口连接；
- * 已打开A1、检测到A1在线/存在的情况均禁止运输。
+ * 已打开A1、检测到A1在线的情况禁止运输；物理端口存在标志不能表示设备插入。
  * 独立于SW6306缓存镜像，避免利用500ms前的旧数据。 */
 uint8_t SW6306_TransportPortsIdle(void)
 {
-    uint8_t sys, typec, porta, port;
+    uint8_t sys, typec, port;
     if (!SW6306_IsInitialized()) return 0U;
     SW6306_MUTEX_TAKE;
     SW6306_RegsetSwitch(SW6306_STRG_SYS_STAT);
     if (SW6306_I2C_Receive(SW6306_I2C_ADDR, SW6306_STRG_SYS_STAT, &sys, 1, (uint8_t*)&SW6306_Status.flag) != I2C_OK ||
         SW6306_I2C_Receive(SW6306_I2C_ADDR, SW6306_STRG_TYPEC, &typec, 1, (uint8_t*)&SW6306_Status.flag) != I2C_OK ||
-        SW6306_I2C_Receive(SW6306_I2C_ADDR, SW6306_STRG_TYPEA_QCIN, &porta, 1, (uint8_t*)&SW6306_Status.flag) != I2C_OK ||
         SW6306_I2C_Receive(SW6306_I2C_ADDR, SW6306_STRG_PORT_STA, &port, 1, (uint8_t*)&SW6306_Status.flag) != I2C_OK) {
         SW6306_MUTEX_GIVE;
         return 0U;
@@ -311,7 +310,6 @@ uint8_t SW6306_TransportPortsIdle(void)
     return ((sys & (SW6306_SYS_STAT_CHGING | SW6306_SYS_STAT_DISCHGING |
                     SW6306_SYS_STAT_C1ON | SW6306_SYS_STAT_A1ON)) == 0U &&
             (typec & (SW6306_TYPEC_C1MSK | SW6306_TYPEC_C1_CC1 | SW6306_TYPEC_C1_CC2)) == 0U &&
-            (porta & SW6306_TYPEA_QCIN_A1EXIST) == 0U &&
             (port & (SW6306_PORT_STA_C1SRC | SW6306_PORT_STA_C1SNK |
                      SW6306_PORT_STA_C1OL | SW6306_PORT_STA_A1OL)) == 0U) ? 1U : 0U;
 }
@@ -684,8 +682,8 @@ SW6306_RET SW6306_ForceOff(SW6306_NOARG)
 {
     SW6306_FUNC_BEGIN;
     SW6306_MUTEX_TAKE;
-    SW6306_SPAWN_ARGS(SW6306_RegsetSwitch, SW6306_CTRG_DISCHG_OFF);//切换低地址
-    SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_DISCHG_OFF, SW6306_PORTEVT_C1_RMV|SW6306_PORTEVT_C2_RMV|SW6306_PORTEVT_A1_RMV|SW6306_PORTEVT_A2_RMV);//关闭输出口
+    SW6306_SPAWN_ARGS(SW6306_RegsetSwitch, SW6306_CTRG_PORTEVT);//切换低地址
+    SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_PORTEVT, SW6306_PORTEVT_C1_RMV|SW6306_PORTEVT_C2_RMV|SW6306_PORTEVT_A1_RMV|SW6306_PORTEVT_A2_RMV);//关闭输出口
     SW6306_SPAWN_ARGS(SW6306_ByteWrite, SW6306_CTRG_DISCHG_OFF, SW6306_DISCHG_OFF);
     SW6306_MUTEX_GIVE;
     SW6306_FUNC_END;

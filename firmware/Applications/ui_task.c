@@ -475,6 +475,8 @@ void ui_task_func(void *pvParameters)
          * 也不能依赖上面的 woke 分支：PM 可能在其之前就回到 RUN。 */
         if (pm_api_lcd_blank_get() != 0U) {
             lv_timer_handler();
+            /* LCD断电后GRAM丢失，必须全部重绘而非仅处理原有脏区。 */
+            lv_obj_invalidate(lv_screen_active());
             lv_refr_now(NULL);
             GC9D01_DisplayPower(1);
             menu_backlight_apply();
